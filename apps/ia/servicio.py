@@ -130,9 +130,21 @@ def _llamar_compatible(c: dict, sistema: str, mensajes: list, max_tokens: int):
               "temperature": 0.3},
         timeout=90,
     )
-    if r.status_code == 429:
-        raise IAError("Se alcanzó el límite gratuito del proveedor de IA. Intente de nuevo en unos minutos.")
-    r.raise_for_status()
+    if r.status_code >= 400:
+        try:
+            detalle = r.json().get("error", {}).get("message", "")
+        except ValueError:
+            detalle = r.text[:300]
+        log.error("Proveedor de IA respondió %s: %s", r.status_code, detalle)
+        if r.status_code == 429:
+            raise IAError("Se alcanzó el límite gratuito del proveedor de IA. Intente de nuevo en unos minutos.")
+        if r.status_code in (401, 403):
+            raise IAError("La clave del proveedor de IA (IA_API_KEY) no es válida o no tiene permisos.")
+        if r.status_code == 413 or "too large" in detalle.lower() or "tokens" in detalle.lower():
+            raise IAError("La consulta supera el límite del plan gratuito de IA. Enfoque la pregunta en un programa.")
+        if "model" in detalle.lower():
+            raise IAError(f"El modelo de IA configurado no está disponible ({c['modelo']}). Revise IA_MODELO.")
+        raise IAError(f"El proveedor de IA respondió con error {r.status_code}: {detalle[:200]}")
     d = r.json()
     texto = (d["choices"][0]["message"].get("content") or "").strip()
     uso = d.get("usage") or {}
