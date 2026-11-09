@@ -89,7 +89,7 @@ def tablero(filtros: Filtros) -> dict:
     estados = {i.id: estado_en_periodo(i, periodo) for i in inds}
     al_dia = sum(1 for e in estados.values() if e == "AL_DIA")
     pts = [puntajes[i.id].puntaje for i in inds if i.id in puntajes]
-    riesgo = round(sum(pts) / len(pts), 1) if pts else 0
+    riesgo = motor.agregar(pts) or 0
 
     ind_ids = {i.id for i in inds}
     evs = Evidencia.objects.filter(indicador_id__in=ind_ids)
@@ -125,7 +125,7 @@ def tablero(filtros: Filtros) -> dict:
     for p in progs:
         lista = por_prog.get(p.id, [])
         pp = [puntajes[i.id].puntaje for i in lista if i.id in puntajes]
-        r = round(sum(pp) / len(pp), 1) if pp else None
+        r = motor.agregar(pp)
         cfg = configs[p.id]
         riesgo_programas.append({
             "id": p.id, "programa": p.nombre, "nombre_corto": p.nombre_corto, "riesgo": r,
@@ -135,7 +135,7 @@ def tablero(filtros: Filtros) -> dict:
         celdas = []
         for f in factores:
             fi = [puntajes[i.id].puntaje for i in lista if i.factor_id == f.id and i.id in puntajes]
-            v = round(sum(fi) / len(fi), 1) if fi else None
+            v = motor.agregar(fi)
             celdas.append({"factor_id": f.id, "valor": v, "nivel": cfg.nivel(v) if v is not None else None})
         mapa.append({"programa_id": p.id, "programa": p.nombre_corto, "celdas": celdas})
     riesgo_programas.sort(key=lambda x: -(x["riesgo"] or -1))

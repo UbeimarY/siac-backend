@@ -6,7 +6,7 @@ from django.db.models import Count, Q
 from apps.programas.models import Factor
 
 from .models import Alerta, ConfiguracionRiesgo, PuntajeRiesgo
-from .motor import indicadores_con_datos
+from .motor import agregar, indicadores_con_datos
 
 
 def _nivel(cfg, puntaje):
@@ -43,7 +43,7 @@ def resumen_programas(programas, detalle=False, indicadores_filtro=None):
         cfg = ConfiguracionRiesgo.para_programa(p)
         lista = por_prog.get(p.id, [])
         pts = [puntajes[i.id].puntaje for i in lista if i.id in puntajes]
-        riesgo = round(sum(pts) / len(pts), 1) if pts else None
+        riesgo = agregar(pts)
         estados = [i.estado() for i in lista]
         d = {
             "id": p.id,
@@ -65,7 +65,7 @@ def resumen_programas(programas, detalle=False, indicadores_filtro=None):
                     sem.append({"factor_id": f.id, "factor": f.nombre, "abreviatura": f.abreviatura,
                                 "riesgo": None, "nivel": None, "indicadores": 0})
                     continue
-                r = round(sum(puntajes[i.id].puntaje for i in fi) / len(fi), 1)
+                r = agregar([puntajes[i.id].puntaje for i in fi])
                 sem.append({"factor_id": f.id, "factor": f.nombre, "abreviatura": f.abreviatura,
                             "riesgo": r, "nivel": _nivel(cfg, r), "indicadores": len(fi)})
             d["semaforo_factores"] = sem

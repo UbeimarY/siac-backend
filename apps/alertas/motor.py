@@ -36,6 +36,8 @@ FACTOR_TENDENCIA = {"DETERIORO": 1.0, "SIN_DATOS": 0.5, "ESTABLE": 0.4, "MEJORA"
 SEVERIDAD_POR_NIVEL = {"ALTO": Alerta.Severidad.ALTA, "MEDIO": Alerta.Severidad.MEDIA, "BAJO": Alerta.Severidad.BAJA}
 DIAS_VISITA_CRITICA = 180
 CACHE_KEY = "motor_alertas_ultima_ejecucion"
+# Una brecha de 25 % frente a la meta ya se considera riesgo máximo en ese componente.
+BRECHA_MAXIMA = 0.25
 
 
 @dataclass
@@ -90,7 +92,7 @@ def calcular_indicador(ind: Indicador, cfg: ConfiguracionRiesgo, hoy=None) -> Re
     tendencia = ind.tendencia()
     f = {
         "tendencia": FACTOR_TENDENCIA.get(tendencia, 0.5),
-        "brecha": 1.0 if cumplimiento is None else round(1 - cumplimiento / 100, 3),
+        "brecha": 1.0 if cumplimiento is None else round(min(1.0, (1 - cumplimiento / 100) / BRECHA_MAXIMA), 3),
         "evidencia": _componente_evidencia(ind, hoy),
         "vencimiento": _componente_vencimiento(ind, cfg, hoy),
         "visita": _componente_visita(ind.programa, cfg),
@@ -125,10 +127,17 @@ def indicadores_con_datos(programas=None):
     return out
 
 
+def agregar(puntajes: list[float]) -> float | None:
+    """Índice de un conjunto de indicadores: la mitad es el promedio general y la otra mitad el promedio de
+    los tres indicadores más críticos, para que unos pocos indicadores en riesgo no se diluyan."""
+    if not puntajes:
+        return None
+    criticos = sorted(puntajes, reverse=True)[:3]
+    return round(0.5 * sum(puntajes) / len(puntajes) + 0.5 * sum(criticos) / len(criticos), 1)
+
+
 def riesgo_programa(resultados: list[ResultadoIndicador]) -> float:
-    if not resultados:
-        return 0.0
-    return round(sum(r.puntaje for r in resultados) / len(resultados), 1)
+    return agregar([r.puntaje for r in resultados]) or 0.0
 
 
 # --------------------------------------------------------------------------- reglas
