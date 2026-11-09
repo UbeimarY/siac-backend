@@ -44,7 +44,7 @@ class IAError(APIException):
 
 PRESETS = {
     # proveedor: (URL base compatible con OpenAI, modelo por defecto)
-    "groq": ("https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
+    "groq": ("https://api.groq.com/openai/v1", "openai/gpt-oss-120b"),
     "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash"),
     "openrouter": ("https://openrouter.ai/api/v1", "meta-llama/llama-3.3-70b-instruct:free"),
     "openai": ("https://api.openai.com/v1", "gpt-4o-mini"),
@@ -123,11 +123,17 @@ def _a_formato_openai(sistema: str, mensajes: list) -> list:
 def _llamar_compatible(c: dict, sistema: str, mensajes: list, max_tokens: int):
     import httpx
 
+    cuerpo = {"model": c["modelo"], "messages": _a_formato_openai(sistema, mensajes), "max_tokens": max_tokens,
+              "temperature": 0.3}
+    if "gpt-oss" in c["modelo"]:
+        # Modelos de razonamiento: razonamiento breve y oculto; el razonamiento también consume tokens.
+        cuerpo["max_tokens"] = max_tokens + 1500
+        if c["proveedor"] == "groq":
+            cuerpo.update({"reasoning_effort": "low", "include_reasoning": False})
     r = httpx.post(
         f"{c['base']}/chat/completions",
         headers={"Authorization": f"Bearer {c['clave']}"},
-        json={"model": c["modelo"], "messages": _a_formato_openai(sistema, mensajes), "max_tokens": max_tokens,
-              "temperature": 0.3},
+        json=cuerpo,
         timeout=90,
     )
     if r.status_code >= 400:
@@ -147,6 +153,8 @@ def _llamar_compatible(c: dict, sistema: str, mensajes: list, max_tokens: int):
         raise IAError(f"El proveedor de IA respondió con error {r.status_code}: {detalle[:200]}")
     d = r.json()
     texto = (d["choices"][0]["message"].get("content") or "").strip()
+    if not texto:
+        raise IAError("El modelo de IA no devolvió texto. Intente de nuevo con una pregunta más concreta.")
     uso = d.get("usage") or {}
     return texto, uso.get("prompt_tokens", 0), uso.get("completion_tokens", 0)
 
