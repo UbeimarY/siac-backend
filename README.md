@@ -12,7 +12,7 @@ Trabajo de grado — Ingeniería de Software: Ubeimar Lizardo Yepes Portilla, Ju
 | Autenticación | JWT (SimpleJWT) con rotación y lista negra (cierre de sesión) |
 | Base de datos | PostgreSQL 17 (SQLite solo para desarrollo local) |
 | Reportes | ReportLab (PDF) y openpyxl (Excel) |
-| IA | API de Anthropic (Claude), solo desde el backend |
+| IA | Proveedor configurable: Groq (gratuito, por defecto), Gemini, OpenRouter, OpenAI o Anthropic; solo desde el backend |
 | Despliegue | Docker, Gunicorn, Nginx + HTTPS |
 
 ## Módulos
@@ -37,7 +37,9 @@ Las alertas se generan por reglas (no son predicciones estadísticas): valor baj
 
 ### IA
 
-La IA **apoya, no decide**: sugiere acciones que el usuario edita antes de guardar, redacta resúmenes que el usuario revisa y pre-revisa evidencias sin aprobarlas. Recibe solo los datos que el usuario tiene permiso de ver, y cada uso queda en la bitácora. Sin `ANTHROPIC_API_KEY`, las funciones de IA responden 503 y el resto del sistema funciona normal.
+La IA **apoya, no decide**: sugiere acciones que el usuario edita antes de guardar, redacta resúmenes que el usuario revisa y pre-revisa evidencias sin aprobarlas. Recibe solo los datos que el usuario tiene permiso de ver, y cada uso queda en la bitácora. Sin `IA_API_KEY`, las funciones de IA responden 503 y el resto del sistema funciona normal.
+
+Configuración gratuita recomendada: crear una clave en https://console.groq.com y definir `IA_PROVEEDOR=groq` e `IA_API_KEY=...`. Cualquier API compatible con OpenAI sirve con `IA_PROVEEDOR=compatible`, `IA_BASE_URL` e `IA_MODELO`.
 
 ## Desarrollo local
 

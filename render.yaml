@@ -22,7 +22,9 @@ services:
         sync: false
       - key: USE_S3
         value: "false"
-      - key: ANTHROPIC_API_KEY
+      - key: IA_PROVEEDOR
+        value: groq
+      - key: IA_API_KEY
         sync: false
       - key: CARGAR_DEMO
         value: "true"
