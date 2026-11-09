@@ -129,7 +129,7 @@ class ConfiguracionRiesgoViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixi
     @action(detail=False, methods=["post"], url_path="vista-previa")
     def vista_previa(self, request):
         """Simula el índice de cada programa con pesos dados, sin guardar."""
-        ser = ConfiguracionRiesgoSerializer(data={**request.data, "programa": None})
+        ser = ConfiguracionRiesgoSerializer(data={**request.data, "programa": None}, context={"vista_previa": True})
         ser.is_valid(raise_exception=True)
         cfg = ConfiguracionRiesgo(**{k: v for k, v in ser.validated_data.items() if k != "programa"})
         progs = filtrar_por_programa(Programa.objects.filter(activo=True), request.user, "id")

@@ -52,6 +52,7 @@ class ConfiguracionRiesgoSerializer(serializers.ModelSerializer):
         if not (0 < bajo < medio < 100):
             raise serializers.ValidationError("Los umbrales deben cumplir 0 < bajo < medio < 100.")
         prog = attrs.get("programa")
-        if self.instance is None and ConfiguracionRiesgo.objects.filter(programa=prog).exists():
+        if (self.instance is None and not self.context.get("vista_previa")
+                and ConfiguracionRiesgo.objects.filter(programa=prog).exists()):
             raise serializers.ValidationError("Ya existe una configuración para este programa.")
         return attrs
