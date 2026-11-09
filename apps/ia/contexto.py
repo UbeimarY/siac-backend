@@ -16,7 +16,7 @@ def _v(v, ind):
     return f"{s}%" if ind.unidad == "PORCENTAJE" else s
 
 
-def describir_indicador(ind, historial=True) -> str:
+def describir_indicador(ind, historial=True, descripcion=True, n_hist=6) -> str:
     meta = f"{'≥' if ind.tipo_meta == 'MAYOR_IGUAL' else '≤'} {_v(ind.meta, ind)}"
     reg = ind.ultimo_registro
     linea = (f"{ind.codigo} «{ind.nombre}» ({ind.programa.nombre_corto}, factor {ind.factor.nombre}): "
@@ -24,10 +24,10 @@ def describir_indicador(ind, historial=True) -> str:
              f"cumplimiento {ind.cumplimiento() if reg else '—'}%, tendencia {ind.tendencia().lower()}, "
              f"estado {ESTADOS.get(ind.estado(), ind.estado())}, periodicidad {ind.get_periodicidad_display().lower()}, "
              f"responsable {ind.responsable.get_full_name() if ind.responsable else 'sin asignar'}")
-    if ind.descripcion:
+    if descripcion and ind.descripcion:
         linea += f". Descripción: {ind.descripcion}"
     if historial:
-        regs = sorted(ind.registros_recientes(6), key=lambda r: r.fecha_corte)
+        regs = sorted(ind.registros_recientes(n_hist), key=lambda r: r.fecha_corte)
         if regs:
             linea += ". Histórico: " + ", ".join(f"{r.periodo.nombre}={_v(r.valor, ind)}" for r in regs)
     return linea
@@ -57,18 +57,25 @@ def contexto_general(user, programa_id=None) -> str:
         visita = f", visita de pares {p.fecha_visita_pares:%Y-%m-%d}" if p.fecha_visita_pares else ""
         partes.append(f"- {p.nombre}: {p.get_estado_display()}{visita}; {p.detalle_estado or ''} "
                       f"riesgo {r['riesgo']} ({(r['nivel'] or '—').lower()}), al día {r['al_dia']}/{r['indicadores']}.")
-    partes.append("\nINDICADORES:")
-    for ind in indicadores(f):
-        partes.append("- " + describir_indicador(ind))
+    # Para no exceder los límites de los modelos gratuitos, sin un programa enfocado solo se detallan
+    # los indicadores que no están al día; los demás se resumen.
+    inds = indicadores(f)
+    if programa_id:
+        partes.append("\nINDICADORES DEL PROGRAMA:")
+        partes += ["- " + describir_indicador(i, descripcion=False, n_hist=4) for i in inds]
+    else:
+        criticos = [i for i in inds if i.estado() != "AL_DIA"]
+        partes.append(f"\nINDICADORES QUE NO ESTÁN AL DÍA ({len(criticos)} de {len(inds)}; los demás cumplen su meta):")
+        partes += ["- " + describir_indicador(i, descripcion=False, n_hist=3) for i in criticos]
     partes.append("\nALERTAS ACTIVAS:")
     alertas = Alerta.objects.filter(programa_id__in=progs.keys(), estado=Alerta.Estado.ACTIVA).select_related(
-        "programa", "responsable")[:60]
+        "programa", "responsable")[:40]
     for a in alertas:
         partes.append(f"- [{a.severidad}] {a.programa.nombre_corto}: {a.titulo} "
                       f"(responsable {a.responsable.get_full_name() if a.responsable else 'sin asignar'})")
     partes.append("\nPLANES DE MEJORAMIENTO ABIERTOS:")
     planes = PlanMejoramiento.objects.filter(programa_id__in=progs.keys()).exclude(
-        estado__in=["CERRADO", "CANCELADO"]).select_related("programa", "indicador", "responsable")[:60]
+        estado__in=["CERRADO", "CANCELADO"]).select_related("programa", "indicador", "responsable")[:40]
     for p in planes:
         partes.append(f"- {p.codigo} ({p.programa.nombre_corto}{', ' + p.indicador.codigo if p.indicador else ''}): "
                       f"{p.accion}; avance {p.avance}% de {p.avance_esperado()}% esperado; límite "
