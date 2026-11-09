@@ -111,3 +111,16 @@ class Evidencia(models.Model):
         if self.tipo == self.Tipo.ENLACE and not self.tipo_documento:
             self.tipo_documento = "URL"
         super().save(*args, **kwargs)
+
+
+class ArchivoBD(models.Model):
+    """Contenido binario de archivos cuando ALMACENAMIENTO=bd (ver almacenamiento.py)."""
+
+    nombre = models.CharField(max_length=255, unique=True)
+    contenido = models.BinaryField()
+    tamano = models.PositiveIntegerField(default=0)
+    creado = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "archivo almacenado"
+        verbose_name_plural = "archivos almacenados"

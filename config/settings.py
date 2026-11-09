@@ -109,12 +109,15 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))
 
-# Almacenamiento de evidencias: disco local (VPS) o S3/R2 (PaaS).
-USE_S3 = env_bool("USE_S3", False)
+# Almacenamiento de evidencias: disco (VPS), base de datos (PaaS sin disco) o S3/R2.
+ALMACENAMIENTO = os.environ.get("ALMACENAMIENTO", "disco").lower()  # disco | bd | s3
+USE_S3 = env_bool("USE_S3", False) or ALMACENAMIENTO == "s3"
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
 }
+if ALMACENAMIENTO == "bd":
+    STORAGES["default"] = {"BACKEND": "apps.evidencias.almacenamiento.AlmacenamientoBD"}
 if USE_S3:
     STORAGES["default"] = {"BACKEND": "storages.backends.s3.S3Storage"}
     AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
