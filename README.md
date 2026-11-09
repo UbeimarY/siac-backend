@@ -39,7 +39,7 @@ Las alertas se generan por reglas (no son predicciones estadísticas): valor baj
 
 La IA **apoya, no decide**: sugiere acciones que el usuario edita antes de guardar, redacta resúmenes que el usuario revisa y pre-revisa evidencias sin aprobarlas. Recibe solo los datos que el usuario tiene permiso de ver, y cada uso queda en la bitácora. Sin `IA_API_KEY`, las funciones de IA responden 503 y el resto del sistema funciona normal.
 
-Configuración gratuita recomendada: crear una clave en https://console.groq.com y definir `IA_PROVEEDOR=groq` e `IA_API_KEY=...`. Cualquier API compatible con OpenAI sirve con `IA_PROVEEDOR=compatible`, `IA_BASE_URL` e `IA_MODELO`.
+Configuración gratuita recomendada: crear una clave en https://console.groq.com y definir `IA_PROVEEDOR=groq` e `IA_API_KEY=...` (modelo por defecto `openai/gpt-oss-120b`). Cualquier API compatible con OpenAI sirve con `IA_PROVEEDOR=compatible`, `IA_BASE_URL` e `IA_MODELO`.
 
 ## Desarrollo local
 
