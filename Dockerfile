@@ -21,7 +21,8 @@ RUN chmod +x docker/entrypoint.sh \
 
 USER siac
 EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=40s CMD curl -fsS http://localhost:8000/api/salud/ || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s CMD curl -fsS http://localhost:${PORT:-8000}/api/salud/ || exit 1
 
 ENTRYPOINT ["docker/entrypoint.sh"]
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120", "--access-logfile", "-"]
+ENV WEB_CONCURRENCY=2
+CMD ["sh", "-c", "exec gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --timeout 120 --access-logfile -"]
