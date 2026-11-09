@@ -1,6 +1,6 @@
 import mimetypes
 
-from django.http import FileResponse, HttpResponseRedirect
+from django.http import FileResponse
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -153,10 +153,6 @@ class EvidenciaViewSet(viewsets.ModelViewSet):
         if not ev.archivo:
             raise ValidationError("La evidencia no tiene archivo.")
         registrar(request, Modulo.EVIDENCIAS, f"Descargó evidencia {ev.codigo}", objeto=ev)
-        try:
-            ruta = ev.archivo.path
-        except NotImplementedError:  # almacenamiento S3/R2: URL firmada temporal
-            return HttpResponseRedirect(ev.archivo.url)
-        tipo = mimetypes.guess_type(ruta)[0] or "application/octet-stream"
-        return FileResponse(open(ruta, "rb"), content_type=tipo, as_attachment=True,
-                            filename=ev.nombre_archivo or f"{ev.codigo}.{ev.tipo_documento.lower()}")
+        nombre = ev.nombre_archivo or f"{ev.codigo}.{ev.tipo_documento.lower()}"
+        tipo = mimetypes.guess_type(nombre)[0] or "application/octet-stream"
+        return FileResponse(ev.archivo.open("rb"), content_type=tipo, as_attachment=True, filename=nombre)
