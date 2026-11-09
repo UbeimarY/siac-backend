@@ -1,0 +1,15 @@
+Django>=5.2,<6.0
+djangorestframework>=3.16
+djangorestframework-simplejwt>=5.5
+django-cors-headers>=4.7
+django-filter>=25.1
+psycopg[binary]>=3.2
+dj-database-url>=3.0
+gunicorn>=23.0
+whitenoise>=6.9
+django-storages>=1.14
+boto3>=1.38
+anthropic>=0.60
+openpyxl>=3.1
+reportlab>=4.4
+pypdf>=5.6
