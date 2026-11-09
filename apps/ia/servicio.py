@@ -32,7 +32,7 @@ BASE_SISTEMA = (
 
 class IANoDisponible(APIException):
     status_code = 503
-    default_detail = "El asistente de IA no está configurado (falta ANTHROPIC_API_KEY en el servidor)."
+    default_detail = "El asistente de IA no está configurado (falta IA_API_KEY en el servidor)."
     default_code = "ia_no_disponible"
 
 
@@ -42,38 +42,124 @@ class IAError(APIException):
     default_code = "ia_error"
 
 
+PRESETS = {
+    # proveedor: (URL base compatible con OpenAI, modelo por defecto)
+    "groq": ("https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash"),
+    "openrouter": ("https://openrouter.ai/api/v1", "meta-llama/llama-3.3-70b-instruct:free"),
+    "openai": ("https://api.openai.com/v1", "gpt-4o-mini"),
+}
+
+
+def config() -> dict:
+    """Proveedor de IA configurado. IA_PROVEEDOR: anthropic | groq | gemini | openrouter | openai | compatible."""
+    prov = settings.IA_PROVEEDOR
+    if prov == "anthropic":
+        return {"proveedor": prov, "clave": settings.IA_API_KEY or settings.ANTHROPIC_API_KEY,
+                "modelo": settings.IA_MODELO or "claude-sonnet-5-5", "base": None}
+    base, modelo = PRESETS.get(prov, (None, None))
+    return {"proveedor": prov, "clave": settings.IA_API_KEY, "modelo": settings.IA_MODELO or modelo,
+            "base": (settings.IA_BASE_URL or base or "").rstrip("/")}
+
+
 def disponible() -> bool:
-    return bool(settings.ANTHROPIC_API_KEY)
+    c = config()
+    return bool(c["clave"] and c["modelo"] and (c["proveedor"] == "anthropic" or c["base"]))
+
+
+def modelo_actual() -> str | None:
+    return config()["modelo"] if disponible() else None
 
 
 _cliente = None
 
 
 def cliente():
+    """Cliente de Anthropic (solo para IA_PROVEEDOR=anthropic)."""
     global _cliente
     if not disponible():
         raise IANoDisponible()
     if _cliente is None:
         import anthropic
 
-        _cliente = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY, timeout=90, max_retries=2)
+        _cliente = anthropic.Anthropic(api_key=config()["clave"], timeout=90, max_retries=2)
     return _cliente
+
+
+def _pdf_a_texto(b64: str) -> str:
+    import base64
+    from io import BytesIO
+
+    from pypdf import PdfReader
+
+    try:
+        lector = PdfReader(BytesIO(base64.b64decode(b64)))
+        texto = "\n".join((p.extract_text() or "") for p in lector.pages[:40])
+    except Exception:
+        texto = ""
+    return texto.strip() or "(No se pudo extraer texto del PDF; puede ser un documento escaneado.)"
+
+
+def _a_formato_openai(sistema: str, mensajes: list) -> list:
+    """Convierte mensajes con bloques (documento, imagen) al formato de chat compatible con OpenAI."""
+    out = [{"role": "system", "content": sistema}]
+    for m in mensajes:
+        cont = m["content"]
+        if isinstance(cont, str):
+            out.append({"role": m["role"], "content": cont})
+            continue
+        partes = []
+        for b in cont:
+            if b.get("type") == "text":
+                partes.append(b["text"])
+            elif b.get("type") == "document":
+                partes.append(f"<contenido_archivo>\n{_pdf_a_texto(b['source']['data'])[:60000]}\n</contenido_archivo>")
+            elif b.get("type") == "image":
+                partes.append("(El archivo es una imagen; este modelo no puede verla. Evalúa con el nombre y la descripción.)")
+        out.append({"role": m["role"], "content": "\n\n".join(partes)})
+    return out
+
+
+def _llamar_compatible(c: dict, sistema: str, mensajes: list, max_tokens: int):
+    import httpx
+
+    r = httpx.post(
+        f"{c['base']}/chat/completions",
+        headers={"Authorization": f"Bearer {c['clave']}"},
+        json={"model": c["modelo"], "messages": _a_formato_openai(sistema, mensajes), "max_tokens": max_tokens,
+              "temperature": 0.3},
+        timeout=90,
+    )
+    if r.status_code == 429:
+        raise IAError("Se alcanzó el límite gratuito del proveedor de IA. Intente de nuevo en unos minutos.")
+    r.raise_for_status()
+    d = r.json()
+    texto = (d["choices"][0]["message"].get("content") or "").strip()
+    uso = d.get("usage") or {}
+    return texto, uso.get("prompt_tokens", 0), uso.get("completion_tokens", 0)
 
 
 def llamar(request, funcion: str, sistema: str, mensajes: list, programa=None, max_tokens=None,
            resumen_entrada: str = "") -> str:
-    """Llama al modelo, registra la interacción y devuelve el texto de respuesta."""
-    modelo = settings.IA_MODELO
+    """Llama al modelo configurado, registra la interacción y devuelve el texto de respuesta."""
+    if not disponible():
+        raise IANoDisponible()
+    c = config()
     inter = InteraccionIA(usuario=request.user, funcion=funcion, programa=programa,
-                          entrada=resumen_entrada[:4000], modelo=modelo)
+                          entrada=resumen_entrada[:4000], modelo=f"{c['proveedor']}:{c['modelo']}"[:60])
+    sistema_total = f"{BASE_SISTEMA}\n\n{sistema}"
+    tokens = max_tokens or settings.IA_MAX_TOKENS
     try:
-        resp = cliente().messages.create(
-            model=modelo,
-            max_tokens=max_tokens or settings.IA_MAX_TOKENS,
-            system=f"{BASE_SISTEMA}\n\n{sistema}",
-            messages=mensajes,
-        )
-    except IANoDisponible:
+        if c["proveedor"] == "anthropic":
+            resp = cliente().messages.create(model=c["modelo"], max_tokens=tokens, system=sistema_total, messages=mensajes)
+            texto = "".join(getattr(b, "text", "") for b in resp.content).strip()
+            t_in, t_out = getattr(resp.usage, "input_tokens", 0), getattr(resp.usage, "output_tokens", 0)
+        else:
+            texto, t_in, t_out = _llamar_compatible(c, sistema_total, mensajes, tokens)
+    except (IANoDisponible, IAError) as exc:
+        inter.exito = False
+        inter.salida = str(exc.detail)[:2000]
+        inter.save()
         raise
     except Exception as exc:  # errores de red, cuota, etc.
         log.exception("Error llamando a la IA")
@@ -81,10 +167,9 @@ def llamar(request, funcion: str, sistema: str, mensajes: list, programa=None, m
         inter.salida = str(exc)[:2000]
         inter.save()
         raise IAError() from exc
-    texto = "".join(getattr(b, "text", "") for b in resp.content).strip()
     inter.salida = texto[:20000]
-    inter.tokens_entrada = getattr(resp.usage, "input_tokens", 0) or 0
-    inter.tokens_salida = getattr(resp.usage, "output_tokens", 0) or 0
+    inter.tokens_entrada = t_in or 0
+    inter.tokens_salida = t_out or 0
     inter.save()
     registrar(request, Modulo.IA, f"Usó IA: {InteraccionIA.Funcion(funcion).label}", programa=programa,
               detalle={"interaccion": inter.id})

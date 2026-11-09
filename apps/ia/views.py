@@ -4,7 +4,6 @@ import re
 import zipfile
 from datetime import timedelta
 
-from django.conf import settings
 from django.utils import timezone
 from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -38,7 +37,7 @@ def _no_consulta(request):
 
 @api_view(["GET"])
 def estado(request):
-    return Response({"disponible": servicio.disponible(), "modelo": settings.IA_MODELO if servicio.disponible() else None})
+    return Response({"disponible": servicio.disponible(), "modelo": servicio.modelo_actual()})
 
 
 # 1. Sugerir planes de mejoramiento a partir de una alerta ----------------------------
@@ -232,7 +231,7 @@ def revisar_evidencia(request, pk):
     if not isinstance(datos, dict):
         raise servicio.IAError()
     datos["fecha"] = timezone.now().isoformat()
-    datos["modelo"] = settings.IA_MODELO
+    datos["modelo"] = servicio.modelo_actual()
     ev.revision_ia = datos
     ev.save(update_fields=["revision_ia"])
     return Response(datos)

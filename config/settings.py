@@ -160,9 +160,13 @@ SIMPLE_JWT = {
 # CORS: orígenes del frontend permitidos.
 CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
 
-# IA (Anthropic). Si no hay API key, los endpoints de IA responden 503.
+# IA. Proveedores: groq (gratuito), gemini, openrouter, openai, compatible (cualquier API tipo OpenAI)
+# o anthropic. Si no hay clave, los endpoints de IA responden 503 y el resto del sistema funciona.
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-IA_MODELO = os.environ.get("IA_MODELO", "claude-sonnet-5-5")
+IA_PROVEEDOR = os.environ.get("IA_PROVEEDOR", "anthropic" if ANTHROPIC_API_KEY else "groq").lower()
+IA_API_KEY = os.environ.get("IA_API_KEY", "")
+IA_BASE_URL = os.environ.get("IA_BASE_URL", "")
+IA_MODELO = os.environ.get("IA_MODELO", "")
 IA_MAX_TOKENS = int(os.environ.get("IA_MAX_TOKENS", "1500"))
 
 # Seguridad en producción

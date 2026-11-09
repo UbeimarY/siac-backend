@@ -13,3 +13,4 @@ anthropic>=0.60
 openpyxl>=3.1
 reportlab>=4.4
 pypdf>=5.6
+httpx>=0.28
