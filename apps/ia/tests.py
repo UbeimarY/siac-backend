@@ -22,7 +22,7 @@ def respuesta(texto):
                            usage=SimpleNamespace(input_tokens=100, output_tokens=50))
 
 
-@override_settings(ANTHROPIC_API_KEY="test-key")
+@override_settings(IA_PROVEEDOR="anthropic", ANTHROPIC_API_KEY="test-key", IA_API_KEY="", IA_MODELO="")
 class IATests(APITestCase):
     def setUp(self):
         hoy = timezone.localdate()
@@ -91,3 +91,42 @@ class IATests(APITestCase):
 
     def test_extraer_json_tolerante(self):
         self.assertEqual(servicio.extraer_json('Claro: {"a": 1} listo'), {"a": 1})
+
+
+@override_settings(IA_PROVEEDOR="groq", IA_API_KEY="gsk-test", IA_MODELO="", ANTHROPIC_API_KEY="")
+class ProveedorCompatibleTests(IATests):
+    """Las mismas pruebas con un proveedor compatible con OpenAI (Groq)."""
+
+    def mock_cliente(self, texto):
+        resp = mock.MagicMock(status_code=200)
+        resp.json.return_value = {"choices": [{"message": {"content": texto}}],
+                                  "usage": {"prompt_tokens": 10, "completion_tokens": 5}}
+        llamadas = mock.MagicMock()
+
+        def post(url, headers, json, timeout):
+            assert url == "https://api.groq.com/openai/v1/chat/completions"
+            assert json["messages"][0]["role"] == "system"
+            llamadas.messages.create(system=json["messages"][0]["content"], messages=[
+                {"role": m["role"], "content": m["content"]} for m in json["messages"][1:]])
+            return resp
+
+        return mock.patch("httpx.post", side_effect=post), llamadas
+
+    @override_settings(IA_API_KEY="")
+    def test_sin_clave_503(self):
+        r = self.client.post("/api/ia/asistente/", {"mensajes": [{"role": "user", "content": "hola"}]}, format="json")
+        self.assertEqual(r.status_code, 503)
+
+    def test_pdf_se_convierte_a_texto(self):
+        import base64
+        from io import BytesIO
+
+        from reportlab.pdfgen import canvas
+
+        buf = BytesIO()
+        c = canvas.Canvas(buf)
+        c.drawString(72, 720, "Deserción 2026-1: 9.5%")
+        c.save()
+        msgs = servicio._a_formato_openai("s", [{"role": "user", "content": [
+            {"type": "document", "source": {"data": base64.b64encode(buf.getvalue()).decode()}}]}])
+        self.assertIn("9.5", msgs[1]["content"])
