@@ -1,15 +1,14 @@
-# Blueprint de Render (opcional): API Django en Docker + PostgreSQL administrado.
-# Las variables marcadas con sync: false se completan en el panel de Render.
+# Blueprint de Render: API Django en Docker. Base de datos en Neon (PostgreSQL gratuito y permanente).
+# Las variables con sync: false se completan en el panel de Render.
 services:
   - type: web
     name: siac-api
     runtime: docker
+    plan: free            # cambiar a "starter" (USD 7/mes) para evitar que se duerma
     healthCheckPath: /api/salud/
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: siac-db
-          property: connectionString
+      - key: DATABASE_URL     # cadena de conexión de Neon
+        sync: false
       - key: DJANGO_SECRET_KEY
         generateValue: true
       - key: DJANGO_DEBUG
@@ -17,11 +16,11 @@ services:
       - key: DJANGO_ALLOWED_HOSTS
         value: ".onrender.com"
       - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        value: "https://siac-api.onrender.com"
+      - key: CORS_ALLOWED_ORIGINS   # URL del frontend en Vercel
         sync: false
-      - key: CORS_ALLOWED_ORIGINS
-        sync: false
-      - key: USE_S3
-        value: "false"
+      - key: ALMACENAMIENTO         # evidencias en PostgreSQL (Render free no tiene disco persistente)
+        value: bd
       - key: IA_PROVEEDOR
         value: groq
       - key: IA_API_KEY
@@ -30,8 +29,3 @@ services:
         value: "true"
       - key: DEMO_PASSWORD
         sync: false
-
-databases:
-  - name: siac-db
-    databaseName: siac
-    user: siac
