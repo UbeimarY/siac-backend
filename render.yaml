@@ -1,0 +1,35 @@
+# Blueprint de Render (opcional): API Django en Docker + PostgreSQL administrado.
+# Las variables marcadas con sync: false se completan en el panel de Render.
+services:
+  - type: web
+    name: siac-api
+    runtime: docker
+    healthCheckPath: /api/salud/
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: siac-db
+          property: connectionString
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: ".onrender.com"
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: USE_S3
+        value: "false"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CARGAR_DEMO
+        value: "true"
+      - key: DEMO_PASSWORD
+        sync: false
+
+databases:
+  - name: siac-db
+    databaseName: siac
+    user: siac
