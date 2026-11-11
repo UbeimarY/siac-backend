@@ -41,6 +41,20 @@ La IA **apoya, no decide**: sugiere acciones que el usuario edita antes de guard
 
 Configuración gratuita recomendada: crear una clave en https://console.groq.com y definir `IA_PROVEEDOR=groq` e `IA_API_KEY=...` (modelo por defecto `openai/gpt-oss-120b`). Cualquier API compatible con OpenAI sirve con `IA_PROVEEDOR=compatible`, `IA_BASE_URL` e `IA_MODELO`.
 
+### Importación desde Excel (pruebas piloto)
+
+`POST /api/indicadores/importar/` (multipart, campo `archivo`) carga indicadores **y sus valores históricos**:
+
+- Hoja **Indicadores**: `programa, factor, codigo, nombre, descripcion, tipo_meta, meta, unidad, periodicidad, fuente, responsable`
+  más una columna por periodo (`2024-2`, `2025-1`…) con el valor medido.
+- Hoja **Valores** (opcional): `programa, codigo, periodo, valor, fecha_corte, observaciones`.
+- `simular=1` ejecuta todo y revierte la transacción; `reemplazar=1` (solo administrador/coordinación) borra antes los
+  indicadores, valores, evidencias, alertas y planes de los programas del archivo.
+- Los periodos inexistentes se crean (`AAAA-1` enero–junio, `AAAA-2` julio–diciembre). Los errores se reportan por fila
+  sin detener la carga.
+
+`GET /api/indicadores/plantilla/?programa=<id>` descarga la plantilla, opcionalmente con los indicadores actuales del programa.
+
 ## Desarrollo local
 
 ```bash
