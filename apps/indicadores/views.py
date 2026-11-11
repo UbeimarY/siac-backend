@@ -1,6 +1,4 @@
-from decimal import Decimal, InvalidOperation
 
-from django.db import transaction
 from django.db.models import Prefetch
 from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
@@ -14,7 +12,6 @@ from apps.bitacora.models import RegistroBitacora
 from apps.bitacora.servicio import Modulo, registrar
 from apps.evidencias.models import Evidencia
 from apps.programas.models import Factor, Programa
-from apps.usuarios.models import Usuario
 from apps.usuarios.permisos import NoConsulta, filtrar_por_programa, puede_editar_programa
 
 from .models import Indicador, RegistroIndicador
@@ -134,92 +131,131 @@ class IndicadorViewSet(viewsets.ModelViewSet):
     # --- Importación desde Excel ----------------------------------------------
     @action(detail=False, methods=["post"], url_path="importar")
     def importar(self, request):
-        """Importa indicadores desde .xlsx. Columnas: programa (código), factor (código), codigo, nombre,
-        descripcion, tipo_meta (>= o <=), meta, unidad (%, numero, escala), periodicidad, fuente, responsable (correo)."""
+        """Importa indicadores y sus valores históricos desde .xlsx (ver apps/indicadores/importacion.py).
+        Parámetros: simular=1 (no guarda nada), reemplazar=1 (borra antes los indicadores de los programas del archivo)."""
         from openpyxl import load_workbook
 
+        from .importacion import importar_libro
+
         archivo = request.FILES.get("archivo")
-        if not archivo or not archivo.name.lower().endswith(".xlsx"):
-            raise drf_serializers.ValidationError({"archivo": "Adjunte un archivo .xlsx."})
+        if not archivo or not archivo.name.lower().endswith((".xlsx", ".xlsm")):
+            raise drf_serializers.ValidationError({"archivo": "Adjunte un archivo de Excel (.xlsx)."})
         try:
             wb = load_workbook(archivo, read_only=True, data_only=True)
         except Exception:
             raise drf_serializers.ValidationError({"archivo": "No se pudo leer el archivo Excel."})
-        ws = wb.active
-        filas = list(ws.iter_rows(values_only=True))
-        if not filas:
-            raise drf_serializers.ValidationError({"archivo": "El archivo está vacío."})
-        enc = [str(c or "").strip().lower() for c in filas[0]]
-        requeridas = ["programa", "factor", "codigo", "nombre", "meta"]
-        faltan = [c for c in requeridas if c not in enc]
-        if faltan:
-            raise drf_serializers.ValidationError({"archivo": f"Faltan columnas: {', '.join(faltan)}"})
-        idx = {c: i for i, c in enumerate(enc)}
-        programas = {p.codigo.lower(): p for p in Programa.objects.all()}
-        factores = {f.codigo.lower(): f for f in Factor.objects.all()}
-        usuarios = {u.email.lower(): u for u in Usuario.objects.all()}
-        unidades = {"%": "PORCENTAJE", "porcentaje": "PORCENTAJE", "numero": "NUMERO", "número": "NUMERO", "escala": "ESCALA"}
-        creados, actualizados, errores = 0, 0, []
-
-        def val(fila, col):
-            i = idx.get(col)
-            v = fila[i] if i is not None and i < len(fila) else None
-            return str(v).strip() if v is not None else ""
-
-        with transaction.atomic():
-            for n, fila in enumerate(filas[1:], start=2):
-                if not any(fila):
-                    continue
-                prog = programas.get(val(fila, "programa").lower())
-                fac = factores.get(val(fila, "factor").lower())
-                if not prog or not fac:
-                    errores.append(f"Fila {n}: programa o factor no existe.")
-                    continue
-                if not puede_editar_programa(request.user, prog.id):
-                    errores.append(f"Fila {n}: sin permisos sobre {prog.nombre_corto}.")
-                    continue
-                try:
-                    meta = Decimal(val(fila, "meta").replace(",", ".").replace("%", ""))
-                except InvalidOperation:
-                    errores.append(f"Fila {n}: meta inválida.")
-                    continue
-                datos = {
-                    "factor": fac, "nombre": val(fila, "nombre")[:200], "descripcion": val(fila, "descripcion"),
-                    "meta": meta,
-                    "tipo_meta": "MENOR_IGUAL" if val(fila, "tipo_meta") in ("<=", "≤", "menor") else "MAYOR_IGUAL",
-                    "unidad": unidades.get(val(fila, "unidad").lower(), "PORCENTAJE"),
-                    "periodicidad": (val(fila, "periodicidad").upper() or "SEMESTRAL")
-                    if val(fila, "periodicidad").upper() in Indicador.Periodicidad.values else "SEMESTRAL",
-                    "fuente_verificacion": val(fila, "fuente")[:255],
-                    "responsable": usuarios.get(val(fila, "responsable").lower()),
-                }
-                _, creado = Indicador.objects.update_or_create(
-                    programa=prog, codigo=val(fila, "codigo")[:20], defaults=datos
-                )
-                creados += creado
-                actualizados += not creado
-        registrar(request, Modulo.INDICADORES, f"Importó indicadores desde Excel ({creados} nuevos, {actualizados} actualizados)")
-        if creados or actualizados:
-            recalcular()
-        return Response({"creados": creados, "actualizados": actualizados, "errores": errores})
+        si = lambda k: str(request.data.get(k, "")).lower() in ("1", "true", "si", "sí")  # noqa: E731
+        simular, reemplazar = si("simular"), si("reemplazar")
+        if reemplazar and not request.user.es_global:
+            raise PermissionDenied("Solo el administrador o la coordinación pueden reemplazar los datos de un programa.")
+        res = importar_libro(wb, request.user, simular=simular, reemplazar=reemplazar)
+        if not simular:
+            registrar(
+                request, Modulo.INDICADORES,
+                f"Importó desde Excel: {res.creados} indicadores nuevos, {res.actualizados} actualizados, "
+                f"{res.valores_creados + res.valores_actualizados} valores"
+                + (f"; reemplazó {res.eliminados} indicadores previos" if res.eliminados else ""),
+                detalle={"archivo": archivo.name, **res.como_dict()},
+            )
+            if res.creados or res.actualizados or res.valores_creados or res.valores_actualizados or res.eliminados:
+                recalcular()
+        return Response(res.como_dict())
 
     @action(detail=False, methods=["get"])
     def plantilla(self, request):
+        """Plantilla de importación. Con ?programa=<id> trae precargados los indicadores actuales del programa."""
         from io import BytesIO
 
         from django.http import HttpResponse
         from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+        from openpyxl.worksheet.datavalidation import DataValidation
 
+        from apps.programas.models import Periodo
+
+        azul, blanco = PatternFill("solid", fgColor="1E3A8A"), Font(bold=True, color="FFFFFF")
+        periodos = [p.nombre for p in Periodo.objects.order_by("fecha_inicio")][-4:] or ["2025-1", "2025-2"]
         wb = Workbook()
-        ws = wb.active
-        ws.title = "Indicadores"
-        ws.append(["programa", "factor", "codigo", "nombre", "descripcion", "tipo_meta", "meta", "unidad",
-                   "periodicidad", "fuente", "responsable"])
-        ws.append(["ENF", "EST", "IND-099", "Ejemplo de indicador", "Descripción", ">=", 80, "%", "SEMESTRAL",
-                   "Registro académico", "correo@ucc.edu.co"])
+
+        ins = wb.active
+        ins.title = "Instrucciones"
+        ins.column_dimensions["A"].width = 110
+        for linea in [
+            "PLANTILLA DE IMPORTACIÓN · SIAC Monitor",
+            "",
+            "1. Hoja «Indicadores»: una fila por indicador. Columnas obligatorias: programa, factor, codigo, nombre, meta.",
+            "   · programa: código del programa (ver hoja Catálogos), p. ej. ODO para Odontología.",
+            "   · factor: código del factor de calidad (ver hoja Catálogos).",
+            "   · tipo_meta: >= si más es mejor (p. ej. retención) o <= si menos es mejor (p. ej. deserción).",
+            "   · unidad: %, numero o escala. Los porcentajes pueden escribirse 85 o 0,85.",
+            "   · periodicidad: MENSUAL, TRIMESTRAL, SEMESTRAL o ANUAL.",
+            "   · responsable: correo de un usuario ya registrado en SIAC Monitor (opcional).",
+            "   · Columnas de periodo (2024-2, 2025-1, 2025-2…): valor medido en ese periodo. Agregue o quite las que necesite.",
+            "",
+            "2. Hoja «Valores» (opcional): otra forma de cargar los valores, una fila por indicador y periodo.",
+            "",
+            "3. En SIAC Monitor: Indicadores → Importar → elija el archivo → «Simular» para revisar → «Importar».",
+            "   Si el código del indicador ya existe en el programa, se actualiza; los periodos nuevos se crean solos.",
+            "   La opción «Reemplazar» borra antes todos los indicadores del programa (útil para quitar los datos de demostración).",
+        ]:
+            ins.append([linea])
+        ins["A1"].font = Font(bold=True, size=14, color="1E3A8A")
+
+        ws = wb.create_sheet("Indicadores")
+        enc = ["programa", "factor", "codigo", "nombre", "descripcion", "tipo_meta", "meta", "unidad",
+               "periodicidad", "fuente", "responsable", *periodos]
+        ws.append(enc)
+        qs = Indicador.objects.none()
+        if request.query_params.get("programa"):
+            qs = filtrar_por_programa(Indicador.objects.filter(
+                programa_id=request.query_params["programa"], activo=True
+            ), request.user).select_related("programa", "factor", "responsable").prefetch_related("registros__periodo")
+        for ind in qs:
+            vals = {r.periodo.nombre: float(r.valor) for r in ind.registros.all()}
+            ws.append([ind.programa.codigo, ind.factor.codigo, ind.codigo, ind.nombre, ind.descripcion,
+                       ">=" if ind.tipo_meta == "MAYOR_IGUAL" else "<=", float(ind.meta),
+                       {"PORCENTAJE": "%", "NUMERO": "numero", "ESCALA": "escala"}[ind.unidad], ind.periodicidad,
+                       ind.fuente_verificacion, ind.responsable.email if ind.responsable else "",
+                       *[vals.get(p) for p in periodos]])
+        if not qs:
+            ws.append(["ODO", "EST", "IND-101", "Tasa de retención estudiantil", "Estudiantes que continúan / matriculados",
+                       ">=", 85, "%", "SEMESTRAL", "Registro académico", "", *[None] * len(periodos)])
+        for i, ancho in enumerate([10, 8, 11, 42, 40, 9, 8, 9, 13, 26, 28] + [10] * len(periodos), start=1):
+            ws.column_dimensions[ws.cell(1, i).column_letter].width = ancho
+        dv_tipo = DataValidation(type="list", formula1='">=,<="', allow_blank=True)
+        dv_uni = DataValidation(type="list", formula1='"%,numero,escala"', allow_blank=True)
+        dv_per = DataValidation(type="list", formula1='"MENSUAL,TRIMESTRAL,SEMESTRAL,ANUAL"', allow_blank=True)
+        for dv, col in ((dv_tipo, "F"), (dv_uni, "H"), (dv_per, "I")):
+            ws.add_data_validation(dv)
+            dv.add(f"{col}2:{col}500")
+
+        val = wb.create_sheet("Valores")
+        val.append(["programa", "codigo", "periodo", "valor", "fecha_corte", "observaciones"])
+        for i, ancho in enumerate([10, 11, 10, 10, 13, 50], start=1):
+            val.column_dimensions[val.cell(1, i).column_letter].width = ancho
+
+        cat = wb.create_sheet("Catálogos")
+        cat.append(["Código programa", "Programa", "", "Código factor", "Factor"])
+        progs = list(Programa.objects.filter(activo=True).values_list("codigo", "nombre"))
+        facs = list(Factor.objects.filter(activo=True).values_list("codigo", "nombre"))
+        for i in range(max(len(progs), len(facs))):
+            p = progs[i] if i < len(progs) else ("", "")
+            f = facs[i] if i < len(facs) else ("", "")
+            cat.append([p[0], p[1], "", f[0], f[1]])
+        for col, ancho in zip("ABCDE", [16, 34, 3, 14, 34], strict=True):
+            cat.column_dimensions[col].width = ancho
+
+        for hoja in (ws, val, cat):
+            for c in hoja[1]:
+                if c.value:
+                    c.fill, c.font = azul, blanco
+                    c.alignment = Alignment(horizontal="center")
+            hoja.freeze_panes = "A2"
+        wb.active = 1
+
         buf = BytesIO()
         wb.save(buf)
         resp = HttpResponse(buf.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        resp["Content-Disposition"] = 'attachment; filename="plantilla_indicadores.xlsx"'
+        resp["Content-Disposition"] = 'attachment; filename="plantilla_importacion_siac.xlsx"'
         return resp
 
