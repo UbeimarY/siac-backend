@@ -13,6 +13,9 @@ if [ "${CARGAR_DEMO:-false}" = "true" ]; then
 fi
 
 python manage.py recalcular_alertas || true
-python manage.py entrenar_ia_beta --si-falta || echo "No se pudo entrenar la IA Beta; se omite."
+# La IA Beta se entrena en segundo plano: el servidor abre el puerto de inmediato y Render
+# no descarta el despliegue por demorar el arranque. Mientras termina, la página IA Beta indica
+# que el modelo aún no está entrenado.
+(python manage.py entrenar_ia_beta --si-falta || echo "No se pudo entrenar la IA Beta; se omite.") &
 
 exec "$@"
