@@ -3,7 +3,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 import numpy as np
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
@@ -186,12 +186,14 @@ class APIBetaTests(APITestCase):
         self.assertTrue(r.data["resultados"])
         self.assertEqual({x["programa"] for x in r.data["resultados"]}, {"Odontología"})
 
+    @override_settings(IA_BETA_SINCRONO=True)
     def test_entrenar_solo_global(self):
         self.client.force_authenticate(self.director)
         self.assertEqual(self.client.post("/api/ia/beta/entrenar/", {}, format="json").status_code, 403)
         self.client.force_authenticate(self.coord)
         antes = ModeloBeta.objects.filter(tipo="RIESGO").count()
         r = self.client.post("/api/ia/beta/entrenar/", {"modelo": "RIESGO"}, format="json")
-        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.status_code, 202)
+        self.assertFalse(self.client.get("/api/ia/beta/estado/").data["entrenando"])
         self.assertEqual(ModeloBeta.objects.filter(tipo="RIESGO").count(), antes + 1)
         self.assertEqual(ModeloBeta.objects.filter(tipo="RIESGO", activo=True).count(), 1)

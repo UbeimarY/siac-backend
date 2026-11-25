@@ -1,7 +1,11 @@
 FROM python:3.13-slim AS base
 
+# NumPy con un solo hilo: en servidores con CPU limitada, varios hilos se estorban y el entrenamiento no avanza.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
     PIP_NO_CACHE_DIR=1 \
     DJANGO_DEBUG=false
 

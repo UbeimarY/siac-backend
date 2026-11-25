@@ -1,4 +1,10 @@
 """API de la IA Beta: red neuronal propia (asistente y predicción de riesgo), sin servicios externos."""
+import logging
+import threading
+
+from django.conf import settings
+from django.db import connection
+from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -8,11 +14,13 @@ from apps.bitacora.servicio import Modulo, registrar
 from apps.ia.models import InteraccionIA, ModeloBeta
 from apps.indicadores.models import Indicador
 from apps.programas.models import Programa
+from apps.usuarios.models import Usuario
 from apps.usuarios.permisos import EsGlobal, filtrar_por_programa
 
 from . import almacen, intenciones, riesgo
 from . import asistente as asistente_beta
 
+logger = logging.getLogger(__name__)
 F = InteraccionIA.Funcion
 TIPOS = {"RIESGO": riesgo, "INTENCION": intenciones}
 
@@ -39,6 +47,8 @@ def estado(request):
         "intencion": _modelo(almacen.activo("INTENCION"), global_),
         "intenciones": intenciones.INTENCIONES,
         "caracteristicas": riesgo.CARACTERISTICAS,
+        "entrenando": _estado_entrenamiento["en_curso"],
+        "errores_entrenamiento": _estado_entrenamiento["errores"],
     })
 
 
@@ -85,6 +95,35 @@ def predicciones(request):
                      "resultados": filas})
 
 
+# Entrenamiento en segundo plano: en servidores con poca CPU tarda más que el límite de una petición.
+_bloqueo = threading.Lock()
+_estado_entrenamiento = {"en_curso": False, "inicio": None, "errores": {}}
+
+
+def _entrenar(tipos: list[str], usuario_id: int | None, en_hilo: bool = True):
+    """Entrena los modelos pedidos y registra cada versión. Se ejecuta en un hilo aparte."""
+    errores = {}
+    try:
+        usuario = Usuario.objects.filter(pk=usuario_id).first() if usuario_id else None
+        for t in tipos:
+            try:
+                modelo, error = TIPOS[t].entrenar(usuario=usuario)
+            except Exception as exc:  # el error queda en el estado para mostrarlo en la página
+                logger.exception("Falló el entrenamiento de la IA Beta (%s)", t)
+                errores[t] = f"Error inesperado: {exc}"
+                continue
+            if error:
+                errores[t] = error
+                continue
+            InteraccionIA.objects.create(usuario=usuario, funcion=F.ENTRENAR_BETA, entrada=f"Entrenamiento {t}",
+                                         salida=modelo.arquitectura, modelo=f"siac-beta:{t.lower()}-v{modelo.version}")
+    finally:
+        with _bloqueo:
+            _estado_entrenamiento.update(en_curso=False, errores=errores)
+        if en_hilo:  # cada hilo abre su propia conexión a la base de datos; se cierra al terminar
+            connection.close()
+
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, EsGlobal])
 def entrenar(request):
@@ -92,16 +131,13 @@ def entrenar(request):
     tipos = list(TIPOS) if pedido == "TODOS" else [pedido]
     if any(t not in TIPOS for t in tipos):
         raise ValidationError({"modelo": "Use RIESGO, INTENCION o TODOS."})
-    salida, errores = {}, {}
-    for t in tipos:
-        modelo, error = TIPOS[t].entrenar(usuario=request.user)
-        if error:
-            errores[t] = error
-        else:
-            salida[t.lower()] = _modelo(modelo, True)
-            InteraccionIA.objects.create(usuario=request.user, funcion=F.ENTRENAR_BETA,
-                                         entrada=f"Entrenamiento {t}", salida=modelo.arquitectura,
-                                         modelo=f"siac-beta:{t.lower()}-v{modelo.version}")
-    registrar(request, Modulo.IA, f"Entrenó la IA Beta ({', '.join(tipos)})",
-              detalle={"versiones": {k: v["version"] for k, v in salida.items()}, "errores": errores})
-    return Response({"modelos": salida, "errores": errores}, status=200 if salida else 400)
+    with _bloqueo:
+        if _estado_entrenamiento["en_curso"]:
+            return Response({"detail": "Ya hay un entrenamiento en curso. Espere a que termine."}, status=409)
+        _estado_entrenamiento.update(en_curso=True, inicio=timezone.now().isoformat(), errores={})
+    registrar(request, Modulo.IA, f"Inició el entrenamiento de la IA Beta ({', '.join(tipos)})", detalle={"modelos": tipos})
+    if getattr(settings, "IA_BETA_SINCRONO", False):  # pruebas automatizadas
+        _entrenar(tipos, request.user.id, en_hilo=False)
+    else:
+        threading.Thread(target=_entrenar, args=(tipos, request.user.id), daemon=True).start()
+    return Response({"en_curso": True, "modelos": tipos}, status=202)
