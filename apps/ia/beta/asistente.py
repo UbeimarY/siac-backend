@@ -108,8 +108,11 @@ def _n(n: int, singular: str, plural: str | None = None) -> str:
 
 
 def _pct(p: float) -> str:
-    v = p * 100
-    return "más de 99%" if v > 99 else ("menos de 1%" if v < 1 else f"{v:.0f}%")
+    if p > 0.99:
+        return "más de 99%"
+    if p < 0.01:
+        return "menos de 1%"
+    return f"{p * 100:.0f}%"
 
 
 def _lista(items, total=None) -> str:

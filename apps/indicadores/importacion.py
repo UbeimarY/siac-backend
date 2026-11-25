@@ -25,7 +25,8 @@ from apps.usuarios.permisos import puede_editar_programa
 
 from .models import Indicador, RegistroIndicador
 
-RE_PERIODO = re.compile(r"^(\d{4})(?:\s*[-–/ ]\s*([12]|i{1,2}))?$", re.IGNORECASE)
+# Se aplica sobre el texto ya normalizado (sin espacios alrededor del separador): así la expresión es lineal.
+RE_PERIODO = re.compile(r"^(\d{4})(?:[-–/]([12]|i{1,2}))?$", re.IGNORECASE)
 UNIDADES = {"%": "PORCENTAJE", "porcentaje": "PORCENTAJE", "numero": "NUMERO", "número": "NUMERO",
             "escala": "ESCALA", "escala (1–5)": "ESCALA", "escala (1-5)": "ESCALA"}
 COLUMNAS_INDICADOR = {"programa", "factor", "codigo", "código", "nombre", "descripcion", "descripción", "tipo_meta",
@@ -66,7 +67,10 @@ def normalizar_periodo(texto) -> str | None:
         return None
     if isinstance(texto, (int, float)) and float(texto).is_integer():
         texto = str(int(texto))
-    m = RE_PERIODO.match(str(texto).strip())
+    t = " ".join(str(texto).split())  # espacios repetidos → uno solo
+    for sep in ("-", "–", "/"):
+        t = t.replace(f" {sep} ", sep).replace(f"{sep} ", sep).replace(f" {sep}", sep)
+    m = RE_PERIODO.match(t.replace(" ", "-"))
     if not m:
         return None
     anio, sem = m.group(1), (m.group(2) or "").lower()

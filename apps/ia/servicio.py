@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 
 from django.conf import settings
 from rest_framework.exceptions import APIException
@@ -198,8 +197,12 @@ def llamar(request, funcion: str, sistema: str, mensajes: list, programa=None, m
 
 def extraer_json(texto: str):
     """Extrae el primer objeto o arreglo JSON de la respuesta del modelo."""
-    bloque = re.search(r"```(?:json)?\s*(.*?)```", texto, re.S)
-    candidato = bloque.group(1) if bloque else texto
+    candidato = texto
+    inicio = texto.find("```")
+    if inicio != -1:  # bloque de código Markdown: se toma lo que hay entre las dos marcas
+        fin = texto.find("```", inicio + 3)
+        if fin != -1:
+            candidato = texto[inicio + 3:fin].removeprefix("json")
     for abre, cierra in (("{", "}"), ("[", "]")):
         i, j = candidato.find(abre), candidato.rfind(cierra)
         if i != -1 and j > i:

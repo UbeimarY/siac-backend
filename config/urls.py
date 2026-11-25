@@ -4,6 +4,7 @@ from django.contrib import admin
 from django.db import connection
 from django.http import JsonResponse
 from django.urls import include, path
+from django.views.decorators.http import require_http_methods
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -31,6 +32,7 @@ router.register("planes", PlanViewSet, basename="plan")
 router.register("bitacora", BitacoraViewSet, basename="bitacora")
 
 
+@require_http_methods(["GET", "HEAD"])
 def salud(request):
     try:
         with connection.cursor() as c:

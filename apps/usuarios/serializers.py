@@ -4,6 +4,8 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .models import Usuario
 
+MENSAJE_CLAVE_OBLIGATORIA = "La contraseña es obligatoria para usuarios nuevos."
+
 
 class UsuarioSerializer(serializers.ModelSerializer):
     nombre = serializers.CharField(source="get_full_name", read_only=True)
@@ -37,7 +39,7 @@ class UsuarioSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         if self.instance is None and not attrs.get("password"):
-            raise serializers.ValidationError({"password": "La contraseña es obligatoria para usuarios nuevos."})
+            raise serializers.ValidationError({"password": [MENSAJE_CLAVE_OBLIGATORIA]})
         if attrs.get("password"):
             validate_password(attrs["password"])
         return attrs

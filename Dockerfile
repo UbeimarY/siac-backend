@@ -11,10 +11,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends libpq5 curl \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 1000 siac
 
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+# Dependencias con versión exacta y hash verificado, solo paquetes binarios (sin ejecutar scripts de instalación).
+COPY requirements.lock .
+RUN pip install --require-hashes --only-binary :all: -r requirements.lock
 
-COPY --chown=siac:siac . .
+# Solo se copia lo que la aplicación necesita para ejecutarse.
+COPY --chown=siac:siac manage.py ./
+COPY --chown=siac:siac config ./config
+COPY --chown=siac:siac apps ./apps
+COPY --chown=siac:siac docker ./docker
 RUN chmod +x docker/entrypoint.sh \
     && DJANGO_SECRET_KEY=build python manage.py collectstatic --noinput \
     && mkdir -p /app/media && chown -R siac:siac /app/media /app/staticfiles

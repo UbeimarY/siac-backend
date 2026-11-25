@@ -75,6 +75,8 @@ python manage.py runserver
 python manage.py test apps
 ```
 
+La imagen Docker instala `requirements.lock`: versiones exactas con hash verificado y solo paquetes binarios. Si se cambia `requirements.txt`, se regenera con `pip-compile --generate-hashes --allow-unsafe --strip-extras -o requirements.lock requirements.txt`.
+
 ## Despliegue con Docker
 
 ```bash
