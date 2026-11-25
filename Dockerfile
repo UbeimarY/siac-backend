@@ -19,14 +19,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends libpq5 curl \
 COPY requirements.lock .
 RUN pip install --require-hashes --only-binary :all: -r requirements.lock
 
-# Solo se copia lo que la aplicación necesita para ejecutarse.
-COPY --chown=siac:siac manage.py ./
-COPY --chown=siac:siac config ./config
-COPY --chown=siac:siac apps ./apps
-COPY --chown=siac:siac docker ./docker
-RUN chmod +x docker/entrypoint.sh \
+# Solo se copia lo que la aplicación necesita para ejecutarse. El código queda como propiedad de root:
+# el usuario de la aplicación puede leerlo y ejecutarlo, pero no modificarlo. Solo /app/media es escribible.
+COPY manage.py ./
+COPY config ./config
+COPY apps ./apps
+COPY docker ./docker
+RUN chmod 755 docker/entrypoint.sh \
     && DJANGO_SECRET_KEY=build python manage.py collectstatic --noinput \
-    && mkdir -p /app/media && chown -R siac:siac /app/media /app/staticfiles
+    && mkdir -p /app/media && chown -R siac:siac /app/media
 
 USER siac
 EXPOSE 8000
