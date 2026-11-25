@@ -41,6 +41,15 @@ La IA **apoya, no decide**: sugiere acciones que el usuario edita antes de guard
 
 Configuración gratuita recomendada: crear una clave en https://console.groq.com y definir `IA_PROVEEDOR=groq` e `IA_API_KEY=...` (modelo por defecto `openai/gpt-oss-120b`). Cualquier API compatible con OpenAI sirve con `IA_PROVEEDOR=compatible`, `IA_BASE_URL` e `IA_MODELO`.
 
+### IA Beta (red neuronal propia)
+
+Segunda opción de IA, programada y entrenada desde cero con NumPy (`apps/ia/beta/`), sin servicios externos ni claves. El usuario elige entre «IA estándar» e «IA Beta» con un selector en el asistente y en el detalle de cada indicador.
+
+- **Red neuronal** (`red.py`): capas densas con ReLU, salida sigmoide o softmax, retropropagación, Adam, regularización L2, *dropout*, pesos por clase y parada temprana. Verificada con prueba de gradiente numérico y XOR.
+- **Predictor de incumplimiento** (`riesgo.py`): con los últimos cuatro valores de cada indicador (15 características) estima la probabilidad de que el próximo valor no cumpla la meta. Se evalúa con validación cruzada agrupada por indicador y se compara contra una regla simple de persistencia; ambas métricas se muestran en la página IA Beta.
+- **Asistente propio** (`intenciones.py`, `asistente.py`): una red clasifica la pregunta en 11 intenciones (alertas, indicadores en riesgo, evidencias, vencimientos, planes, resumen, predicción, comparación de programas, visita de pares, saludo, fuera de alcance) y la respuesta se arma con consultas a la base de datos filtradas por los permisos del usuario. Si la confianza es menor a 50 %, propone preguntas parecidas en lugar de adivinar.
+- Los pesos se guardan versionados en la base de datos (`ModeloBeta`). Se entrenan al desplegar si no existen (`python manage.py entrenar_ia_beta --si-falta`) y la coordinación puede reentrenarlos desde la página IA Beta después de cargar datos nuevos.
+
 ### Importación desde Excel (pruebas piloto)
 
 `POST /api/indicadores/importar/` (multipart, campo `archivo`) carga indicadores **y sus valores históricos**:
