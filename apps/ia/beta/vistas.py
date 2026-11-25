@@ -10,7 +10,8 @@ from apps.indicadores.models import Indicador
 from apps.programas.models import Programa
 from apps.usuarios.permisos import EsGlobal, filtrar_por_programa
 
-from . import almacen, asistente as asistente_beta, intenciones, riesgo
+from . import almacen, intenciones, riesgo
+from . import asistente as asistente_beta
 
 F = InteraccionIA.Funcion
 TIPOS = {"RIESGO": riesgo, "INTENCION": intenciones}

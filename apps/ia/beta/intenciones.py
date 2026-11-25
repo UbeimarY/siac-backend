@@ -6,6 +6,7 @@ Las frases de entrenamiento están escritas aquí mismo; no se usa ningún servi
 """
 from __future__ import annotations
 
+import itertools
 import re
 import unicodedata
 import zlib
@@ -158,7 +159,7 @@ def vectorizar(texto: str) -> np.ndarray:
         v[_h("w:" + w)] += 1.0
         if len(w) > 4:
             v[_h("r:" + w[:5])] += 0.5  # raíz aproximada: «alertas» ≈ «alerta»
-    for a, b in zip(palabras, palabras[1:]):
+    for a, b in itertools.pairwise(palabras):
         v[_h(f"b:{a}_{b}")] += 1.0
     p = f" {t} "
     for i in range(len(p) - 2):
@@ -219,7 +220,7 @@ def entrenar(usuario=None, semilla: int = 11):
         m = y_val == k
         por_clase[intent] = round(float((p_val[m] == k).mean()), 4) if m.any() else None
     matriz = np.zeros((len(etiquetas), len(etiquetas)), dtype=int)
-    for a, b in zip(y_val, p_val):
+    for a, b in zip(y_val, p_val, strict=True):
         matriz[a, b] += 1
     # Versión final con todas las frases y las épocas que funcionaron mejor en validación.
     final = RedNeuronal([DIM, 64, len(etiquetas)], "softmax", dropout=0.2, semilla=semilla)
@@ -231,7 +232,7 @@ def entrenar(usuario=None, semilla: int = 11):
         "matriz": matriz.tolist(),
         "etiquetas": etiquetas,
         "metodo_validacion": "20 % de las frases de cada intención, con sus variantes, fuera del entrenamiento",
-        "frases": int(len(frases)),
+        "frases": len(frases),
         "umbral_confianza": UMBRAL_CONFIANZA,
     }
     extra = {"etiquetas": etiquetas, "dim": DIM}

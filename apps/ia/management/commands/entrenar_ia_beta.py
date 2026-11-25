@@ -20,6 +20,6 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(f"{tipo}: {error}"))
                 continue
             val = modelo.metricas.get("validacion", {})
-            self.stdout.write(self.style.SUCCESS(
-                f"{tipo} v{modelo.version}: {modelo.arquitectura}, {modelo.parametros} parámetros, "
-                f"exactitud de validación {val.get('exactitud')}"))
+            resumen = (f"{tipo} v{modelo.version}: {modelo.arquitectura}, {modelo.parametros} parámetros, "
+                       + f"exactitud de validación {val.get('exactitud')}")
+            self.stdout.write(self.style.SUCCESS(resumen))

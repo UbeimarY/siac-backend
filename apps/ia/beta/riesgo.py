@@ -160,8 +160,9 @@ def entrenar(usuario=None, semilla: int = 7, datos=None, pliegues: int = 5):
     Devuelve (ModeloBeta, None) o (None, mensaje de error)."""
     X, y, grupos = construir_dataset(datos)
     if len(X) < 20 or len(set(y.tolist())) < 2:
-        return None, ("No hay suficientes datos históricos para entrenar: se necesitan al menos 20 pares de "
-                      "periodos consecutivos con casos que cumplan y que incumplan la meta.")
+        mensaje = ("No hay suficientes datos históricos para entrenar: se necesitan al menos 20 pares de "
+                   + "periodos consecutivos con casos que cumplan y que incumplan la meta.")
+        return None, mensaje
     rng = np.random.default_rng(semilla)
     ids = np.unique(grupos)
     rng.shuffle(ids)
@@ -191,7 +192,7 @@ def entrenar(usuario=None, semilla: int = 7, datos=None, pliegues: int = 5):
     red = _nueva_red(X.shape[1], semilla)
     red.entrenar((Xa - media) / desv, ya, epocas=epocas_final, lote=HIPER["lote"], tasa=HIPER["tasa"],
                  l2=HIPER["l2"], pesos_clase=_pesos_clase(ya))
-    base = (X[:, 1] == 0).astype(float)  # línea base: «si hoy incumple, el próximo también»
+    base = (X[:, 1] < 0.5).astype(float)  # línea base: «si hoy incumple, el próximo también» (la columna vale 0 o 1)
     metricas = {
         "validacion": _metricas(y, p_oof),
         "linea_base": _metricas(y, base) | {"descripcion": "Persistencia: el próximo periodo repite el estado actual"},
@@ -199,7 +200,7 @@ def entrenar(usuario=None, semilla: int = 7, datos=None, pliegues: int = 5):
         "metodo_validacion": f"Validación cruzada agrupada por indicador ({pliegues} pliegues)",
         "pliegues": pliegues,
         "epocas_final": epocas_final,
-        "indicadores": int(len(ids)),
+        "indicadores": len(ids),
         "tasa_incumplimiento": round(float(y.mean()), 4),
         "hiperparametros": HIPER,
     }
@@ -215,7 +216,7 @@ def _nivel(p: float) -> str:
 def _factores(x: np.ndarray) -> list[str]:
     """Explicación sencilla de las señales que suelen pesar en la predicción."""
     f = []
-    if x[1] == 0:
+    if x[1] < 0.5:  # «cumple la meta» vale 0 o 1; se compara con un umbral, no por igualdad
         f.append(f"Hoy no cumple la meta (cumplimiento {x[0] * 100:.0f} %)")
     if x[4] < -0.02:
         f.append("Tendencia reciente en contra de la meta")

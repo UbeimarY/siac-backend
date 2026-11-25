@@ -41,7 +41,7 @@ class RedNeuronalTests(SimpleTestCase):
         red = RedNeuronal([4, 5, 3 if salida == "softmax" else 1], salida, semilla=1)
         analitico, _ = red.gradientes(X, y)
         numerico = _gradiente_numerico(red, X, y)
-        for a, n in zip(analitico, numerico):
+        for a, n in zip(analitico, numerico, strict=True):
             err = np.linalg.norm(a - n) / max(np.linalg.norm(a) + np.linalg.norm(n), 1e-12)
             self.assertLess(err, 1e-5)
 

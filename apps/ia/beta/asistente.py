@@ -269,8 +269,10 @@ def r_resumen(ctx):
     al = ctx.filtrar(Alerta.objects.filter(estado="ACTIVA"))
     partes.append(f"- Alertas activas: {al.count()} ({_n(al.filter(severidad='ALTA').count(), 'alta')})")
     ev = ctx.filtrar(Evidencia.objects.all(), "indicador__programa_id")
-    partes.append(f"- Evidencias: {ev.filter(estado='POR_CARGAR').count()} por cargar, "
-                  f"{ev.filter(estado='PENDIENTE').count()} en revisión, {ev.filter(estado='APROBADA').count()} aprobadas")
+    por_cargar = ev.filter(estado="POR_CARGAR").count()
+    en_revision = ev.filter(estado="PENDIENTE").count()
+    aprobadas = ev.filter(estado="APROBADA").count()
+    partes.append(f"- Evidencias: {por_cargar} por cargar, {en_revision} en revisión, {aprobadas} aprobadas")
     planes = [p for p in ctx.filtrar(PlanMejoramiento.objects.all()) if p.abierto]
     partes.append(f"- Planes abiertos: {len(planes)} ({_n(sum(1 for p in planes if p.retrasado()), 'retrasado')})")
     preds = riesgo.predecir(inds)
@@ -334,8 +336,8 @@ def r_visita(ctx):
         d = p.dias_para_visita
         cuando = f"faltan {d} días" if d >= 0 else f"fue hace {-d} días"
         al = Alerta.objects.filter(programa=p, estado="ACTIVA", severidad="ALTA").count()
-        items.append(f"**{p.nombre}**: {_fecha(p.fecha_visita_pares)} ({cuando}); "
-                     f"{_n(al, 'alerta alta activa', 'alertas altas activas')}")
+        altas = _n(al, "alerta alta activa", "alertas altas activas")
+        items.append(f"**{p.nombre}**: {_fecha(p.fecha_visita_pares)} ({cuando}); {altas}")
     texto = "Visitas de pares programadas:\n" + _lista(items)
     if sin and not ctx.programa:
         texto += "\nSin fecha registrada: " + ", ".join(p.nombre_corto for p in sin) + "."
@@ -383,8 +385,9 @@ def responder(user, texto: str, programa_id=None) -> dict:
 
     resultado = intenciones.clasificar(texto)
     if resultado is None:
-        return {"respuesta": "La IA Beta aún no está entrenada. Un administrador debe entrenarla desde la página "
-                             "IA Beta (o con el comando entrenar_ia_beta).",
+        sin_modelo = ("La IA Beta aún no está entrenada. Un administrador debe entrenarla desde la página "
+                      + "IA Beta (o con el comando entrenar_ia_beta).")
+        return {"respuesta": sin_modelo,
                 "intencion": None, "confianza": 0.0, "alternativas": [], "programa": None, "entrenada": False}
     intent, conf, top = resultado
     alternativas = [{"intencion": i, "etiqueta": INTENCIONES[i], "confianza": c} for i, c in top]

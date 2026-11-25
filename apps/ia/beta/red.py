@@ -193,7 +193,7 @@ class RedNeuronal:
         return buf.getvalue()
 
     @classmethod
-    def desde_bytes(cls, datos: bytes) -> tuple["RedNeuronal", dict]:
+    def desde_bytes(cls, datos: bytes) -> tuple[RedNeuronal, dict]:
         z = np.load(io.BytesIO(bytes(datos)), allow_pickle=False)
         meta = json.loads(bytes(z["meta"]).decode())
         red = cls(meta["capas"], meta["salida"], meta["dropout"], meta["semilla"])
