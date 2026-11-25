@@ -11,6 +11,7 @@ from apps.alertas.views import AlertaViewSet, ConfiguracionRiesgoViewSet
 from apps.bitacora.views import BitacoraViewSet
 from apps.evidencias.views import EvidenciaViewSet
 from apps.ia import views as ia
+from apps.ia.beta import vistas as ia_beta
 from apps.indicadores.views import IndicadorViewSet
 from apps.planes.views import PlanViewSet
 from apps.programas.views import FactorViewSet, PeriodoViewSet, ProgramaViewSet
@@ -55,6 +56,10 @@ api = [
     path("ia/resumen/", ia.resumen, name="ia_resumen"),
     path("ia/asistente/", ia.asistente, name="ia_asistente"),
     path("ia/revisar-evidencia/<int:pk>/", ia.revisar_evidencia, name="ia_revisar_evidencia"),
+    path("ia/beta/estado/", ia_beta.estado, name="ia_beta_estado"),
+    path("ia/beta/asistente/", ia_beta.asistente, name="ia_beta_asistente"),
+    path("ia/beta/predicciones/", ia_beta.predicciones, name="ia_beta_predicciones"),
+    path("ia/beta/entrenar/", ia_beta.entrenar, name="ia_beta_entrenar"),
     path("", include(router.urls)),
 ]
 

@@ -13,5 +13,6 @@ if [ "${CARGAR_DEMO:-false}" = "true" ]; then
 fi
 
 python manage.py recalcular_alertas || true
+python manage.py entrenar_ia_beta --si-falta || echo "No se pudo entrenar la IA Beta; se omite."
 
 exec "$@"
