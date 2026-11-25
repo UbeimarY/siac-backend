@@ -74,12 +74,17 @@ class Indicador(models.Model):
         return list(self.registros.order_by("-fecha_corte", "-id")[:n])
 
     def cumple(self, valor) -> bool:
+        """El sentido de la meta importa: «mayor o igual» (p. ej. retención) o «menor o igual» (p. ej. deserción)."""
         if valor is None:
             return False
         return valor >= self.meta if self.tipo_meta == self.TipoMeta.MAYOR_IGUAL else valor <= self.meta
 
     def cumplimiento(self, valor=None) -> float | None:
-        """Porcentaje de cumplimiento de la meta (0–100). Si cumple la meta, es 100 %."""
+        """Porcentaje de cumplimiento de la meta (0–100). Si cumple la meta, es 100 %.
+
+        Meta «mayor o igual»: valor / meta. Ej.: meta 80 %, valor 74,3 % → 92,9 % de cumplimiento.
+        Meta «menor o igual»: se descuenta el exceso. Ej.: meta 10 %, valor 12 % → exceso 20 % → 80 %.
+        """
         if valor is None:
             reg = self.ultimo_registro
             valor = reg.valor if reg else None
@@ -97,7 +102,11 @@ class Indicador(models.Model):
         return round(float(max(Decimal(0), (1 - exceso) * 100)), 1)
 
     def tendencia(self) -> str:
-        """MEJORA, ESTABLE o DETERIORO según los últimos registros, en la dirección de la meta."""
+        """MEJORA, ESTABLE o DETERIORO según los últimos registros, en la dirección de la meta.
+
+        Compara el valor más reciente con el de hace dos periodos. Un cambio menor al 2 % se considera estable.
+        En metas «menor o igual» el signo se invierte: que la deserción baje es una mejora.
+        """
         regs = self.registros_recientes(3)
         if len(regs) < 2:
             return "SIN_DATOS"
@@ -123,6 +132,8 @@ class Indicador(models.Model):
         return timezone.localdate() > self.fecha_proxima_actualizacion()
 
     def estado(self) -> str:
+        """Estado del semáforo del indicador: SIN_DATOS, DESACTUALIZADO, AL_DIA, ALERTA (cumplimiento de 80 %
+        o más sin llegar a la meta) o EN_RIESGO (menos de 80 %)."""
         reg = self.ultimo_registro
         if reg is None:
             return "SIN_DATOS"

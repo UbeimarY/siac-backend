@@ -6,6 +6,16 @@ el optimizador Adam, la regularización L2, el dropout y la parada temprana est�
 Arquitectura: capas densas con activación ReLU en las capas ocultas y una salida
 * sigmoide con entropía cruzada binaria (clasificación binaria), o
 * softmax con entropía cruzada categórica (clasificación en varias clases).
+
+Cómo aprende, en cuatro pasos que se repiten en cada lote de ejemplos:
+1. Propagación hacia adelante (_adelante): cada capa calcula z = a·W + b y aplica la activación.
+2. Pérdida (_perdida): cuánto se equivoca la red frente a la respuesta correcta (entropía cruzada).
+3. Retropropagación (gradientes): con la regla de la cadena se obtiene cuánto aporta cada peso al error.
+4. Actualización (entrenar): el optimizador Adam mueve cada peso un poco en la dirección que reduce el error.
+
+Se usa en dos lugares: riesgo.py (¿el próximo valor de un indicador incumplirá la meta?, salida sigmoide)
+e intenciones.py (¿qué quiere saber el usuario con su pregunta?, salida softmax con 11 clases).
+Se verificó con una prueba de gradiente numérico y aprendiendo la función XOR (apps/ia/tests_beta.py).
 """
 from __future__ import annotations
 
@@ -18,6 +28,7 @@ import numpy as np
 
 @dataclass
 class Historial:
+    """Pérdida y exactitud por época, en entrenamiento y validación: es la curva de aprendizaje de la página IA Beta."""
     perdida: list[float] = field(default_factory=list)
     perdida_val: list[float] = field(default_factory=list)
     exactitud: list[float] = field(default_factory=list)
@@ -31,6 +42,9 @@ class Historial:
 
 
 class RedNeuronal:
+    """Perceptrón multicapa. Ej.: RedNeuronal([15, 16, 8, 1]) tiene 15 entradas, dos capas ocultas de 16 y 8
+    neuronas y una salida: 15×16 + 16 + 16×8 + 8 + 8×1 + 1 = 401 parámetros (pesos y sesgos)."""
+
     def __init__(self, capas: list[int], salida: str = "sigmoide", dropout: float = 0.0, semilla: int = 42):
         if salida not in ("sigmoide", "softmax"):
             raise ValueError("salida debe ser 'sigmoide' o 'softmax'")
@@ -41,30 +55,36 @@ class RedNeuronal:
         self.dropout = float(dropout)
         self.semilla = semilla
         rng = np.random.default_rng(semilla)
-        # Inicialización de He: adecuada para ReLU.
+        # Pesos W (una matriz por capa) y sesgos b. Inicialización de He: pesos aleatorios con varianza 2/n,
+        # adecuada para ReLU, para que la señal no se apague ni se dispare al atravesar las capas.
         self.W = [rng.normal(0, np.sqrt(2.0 / capas[i]), (capas[i], capas[i + 1])) for i in range(len(capas) - 1)]
         self.b = [np.zeros((1, capas[i + 1])) for i in range(len(capas) - 1)]
 
     # ------------------------------------------------------------------ propagación
     @staticmethod
     def _relu(z):
+        """ReLU: deja pasar los valores positivos y convierte en 0 los negativos. Da a la red su no linealidad."""
         return np.maximum(0.0, z)
 
     @staticmethod
     def _sigmoide(z):
+        """Convierte cualquier número en una probabilidad entre 0 y 1 (se usa para una sola salida)."""
         return 1.0 / (1.0 + np.exp(-np.clip(z, -40, 40)))
 
     @staticmethod
     def _softmax(z):
+        """Convierte un vector de puntajes en probabilidades que suman 1 (una por clase)."""
         z = z - z.max(axis=1, keepdims=True)
         e = np.exp(z)
         return e / e.sum(axis=1, keepdims=True)
 
     def _adelante(self, X, entrenando=False, rng=None):
+        """Propagación hacia adelante. Guarda las activaciones de cada capa porque la retropropagación las necesita.
+        Durante el entrenamiento aplica dropout: apaga al azar algunas neuronas para que la red no memorice."""
         activaciones, mascaras = [X], []
         a = X
         for i in range(len(self.W)):
-            z = a @ self.W[i] + self.b[i]
+            z = a @ self.W[i] + self.b[i]  # combinación lineal: entradas × pesos + sesgo
             ultima = i == len(self.W) - 1
             if ultima:
                 a = self._sigmoide(z) if self.salida == "sigmoide" else self._softmax(z)
@@ -91,6 +111,8 @@ class RedNeuronal:
         return self._perdida(p, y, pesos_muestra, l2)
 
     def _perdida(self, p, y, pesos_muestra, l2):
+        """Entropía cruzada: castiga mucho a la red cuando asigna baja probabilidad a la respuesta correcta.
+        La regularización L2 suma una pequeña penalización por pesos grandes, para evitar el sobreajuste."""
         eps = 1e-9
         if self.salida == "sigmoide":
             y = y.reshape(-1, 1)
@@ -118,6 +140,8 @@ class RedNeuronal:
             uno[np.arange(n), y] = 1.0
             delta = (p - uno) * w
         gW, gb = [None] * len(self.W), [None] * len(self.W)
+        # Se recorre de la última capa a la primera: el error de una capa se reparte hacia la anterior
+        # multiplicando por sus pesos transpuestos y por la derivada de ReLU (1 si la neurona estaba activa).
         for i in reversed(range(len(self.W))):
             gW[i] = acts[i].T @ delta + l2 * self.W[i] / n
             gb[i] = delta.sum(axis=0, keepdims=True)
@@ -138,6 +162,8 @@ class RedNeuronal:
         pm = None
         if pesos_clase is not None:
             pm = np.array([pesos_clase[int(c)] for c in y], dtype=float)
+        # Adam guarda, para cada peso, un promedio de sus gradientes (m: la dirección) y de sus cuadrados
+        # (v: qué tan grande suele ser). Así cada peso avanza con un paso adaptado, más estable que el descenso simple.
         mW = [np.zeros_like(W) for W in self.W]
         vW = [np.zeros_like(W) for W in self.W]
         mb = [np.zeros_like(b) for b in self.b]
@@ -145,7 +171,7 @@ class RedNeuronal:
         b1, b2, eps, t = 0.9, 0.999, 1e-8, 0
         hist = Historial()
         mejor, mejores_pesos, sin_mejora = np.inf, None, 0
-        for ep in range(epocas):
+        for ep in range(epocas):  # una época = recorrer todos los ejemplos una vez, en lotes de `lote`
             orden = rng.permutation(len(X))
             for ini in range(0, len(X), lote):
                 idx = orden[ini:ini + lote]
@@ -164,6 +190,8 @@ class RedNeuronal:
                 pv = self.perdida(X_val, np.asarray(y_val), None, 0.0)
                 hist.perdida_val.append(pv)
                 hist.exactitud_val.append(self.exactitud(X_val, y_val))
+                # Parada temprana: si la pérdida en validación (datos que la red no usa para aprender) deja de
+                # mejorar durante `paciencia` épocas, se detiene y se conservan los pesos de la mejor época.
                 if ep < min_epocas:
                     continue
                 if pv < mejor - 1e-5:

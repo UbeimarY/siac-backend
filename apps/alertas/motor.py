@@ -32,8 +32,11 @@ from .models import Alerta, ConfiguracionRiesgo, PuntajeRiesgo
 
 log = logging.getLogger(__name__)
 
+# Cada componente del índice se expresa como un factor entre 0 (sin riesgo) y 1 (riesgo máximo).
+# La tendencia se traduce así: deteriorarse es el peor caso; sin datos suficientes se asume riesgo intermedio.
 FACTOR_TENDENCIA = {"DETERIORO": 1.0, "SIN_DATOS": 0.5, "ESTABLE": 0.4, "MEJORA": 0.0}
 SEVERIDAD_POR_NIVEL = {"ALTO": Alerta.Severidad.ALTA, "MEDIO": Alerta.Severidad.MEDIA, "BAJO": Alerta.Severidad.BAJA}
+# Si la visita de pares está a 180 días o menos, las alertas de evidencia y actualización suben a severidad ALTA.
 DIAS_VISITA_CRITICA = 180
 CACHE_KEY = "motor_alertas_ultima_ejecucion"
 # Una brecha de 25 % frente a la meta ya se considera riesgo máximo en ese componente.
@@ -42,6 +45,9 @@ BRECHA_MAXIMA = 0.25
 
 @dataclass
 class ResultadoIndicador:
+    """Resultado del cálculo para un indicador: el índice (0–100), su nivel del semáforo y el aporte de cada
+    componente. Los componentes se guardan en PuntajeRiesgo para mostrar el desglose en el detalle del indicador."""
+
     indicador: Indicador
     puntaje: float
     nivel: str
@@ -49,6 +55,8 @@ class ResultadoIndicador:
 
 
 def _componente_evidencia(ind: Indicador, hoy) -> float:
+    """Factor de evidencia: 0 si hay una evidencia vigente aprobada, 0,4 si la vigente aún está pendiente de
+    revisión y 1 si no hay ninguna evidencia vigente (el indicador no tiene cómo demostrar su resultado)."""
     if not ind.requiere_evidencia:
         return 0.0
     evs = getattr(ind, "_evidencias_cache", None)
@@ -63,6 +71,11 @@ def _componente_evidencia(ind: Indicador, hoy) -> float:
 
 
 def _componente_vencimiento(ind: Indicador, cfg: ConfiguracionRiesgo, hoy) -> float:
+    """Factor de vencimiento: crece a medida que se acerca la próxima actualización del indicador o la fecha
+    límite de una evidencia solicitada, y vale 1 si alguna ya venció.
+
+    Ejemplo con 30 días de aviso: si faltan 10 días, el factor es 1 - 10/30 = 0,67.
+    """
     aviso = max(cfg.dias_aviso_vencimiento, 1)
     fechas = [ind.fecha_proxima_actualizacion()]
     evs = getattr(ind, "_evidencias_cache", None)
@@ -80,6 +93,8 @@ def _componente_vencimiento(ind: Indicador, cfg: ConfiguracionRiesgo, hoy) -> fl
 
 
 def _componente_visita(programa: Programa, cfg: ConfiguracionRiesgo) -> float:
+    """Factor de visita de pares: 0 si no hay visita dentro del horizonte (365 días por defecto) y sube hasta 1
+    a medida que la visita se acerca. Así el mismo incumplimiento pesa más en un programa a punto de ser visitado."""
     dias = programa.dias_para_visita
     if dias is None or dias < 0 or dias > cfg.horizonte_visita_dias:
         return 0.0
@@ -87,11 +102,26 @@ def _componente_visita(programa: Programa, cfg: ConfiguracionRiesgo) -> float:
 
 
 def calcular_indicador(ind: Indicador, cfg: ConfiguracionRiesgo, hoy=None) -> ResultadoIndicador:
+    """Índice de riesgo de un indicador = suma ponderada de cinco factores (numeral 3.10.4 de la tesis).
+
+        índice = factor_tendencia × peso + factor_brecha × peso + factor_evidencia × peso
+                 + factor_vencimiento × peso + factor_visita × peso
+
+    Los pesos suman 100 y vienen de ConfiguracionRiesgo (globales o del programa), así que el índice queda
+    entre 0 y 100. Pesos por defecto: tendencia 25, brecha 30, evidencia 20, vencimiento 15, visita 10.
+
+    Ejemplo real de los datos de demostración, IND-001 «Tasa de retención» de Medicina (meta 80 %, último
+    valor 74,3 %, en deterioro, sin evidencia vigente; Medicina usa pesos propios):
+        tendencia 1 × 20 = 20 · brecha 0,28 × 30 = 8,5 · evidencia 1 × 20 = 20
+        vencimiento 1 × 10 = 10 · visita 0,67 × 20 = 13,3  →  índice 71,8 = riesgo ALTO (> 65)
+    """
     hoy = hoy or timezone.localdate()
     cumplimiento = ind.cumplimiento()
     tendencia = ind.tendencia()
     f = {
         "tendencia": FACTOR_TENDENCIA.get(tendencia, 0.5),
+        # Brecha: lo que falta para la meta, escalado para que faltar un 25 % o más sea el riesgo máximo.
+        # Ej.: cumplimiento 92,9 % → falta 7,1 % → 0,071 / 0,25 = 0,28.
         "brecha": 1.0 if cumplimiento is None else round(min(1.0, (1 - cumplimiento / 100) / BRECHA_MAXIMA), 3),
         "evidencia": _componente_evidencia(ind, hoy),
         "vencimiento": _componente_vencimiento(ind, cfg, hoy),
@@ -105,6 +135,7 @@ def calcular_indicador(ind: Indicador, cfg: ConfiguracionRiesgo, hoy=None) -> Re
         "visita": cfg.peso_visita,
     }
     puntaje = round(sum(f[k] * pesos[k] for k in f), 1)
+    # Se guarda el aporte de cada componente: es lo que hace transparente el índice en la interfaz.
     comps = {k: {"factor": f[k], "peso": pesos[k], "aporte": round(f[k] * pesos[k], 1)} for k in f}
     comps["tendencia"]["valor"] = tendencia
     comps["brecha"]["cumplimiento"] = cumplimiento
@@ -112,6 +143,8 @@ def calcular_indicador(ind: Indicador, cfg: ConfiguracionRiesgo, hoy=None) -> Re
 
 
 def indicadores_con_datos(programas=None):
+    """Carga los indicadores con sus registros y evidencias en pocas consultas (prefetch), para no hacer una
+    consulta por indicador al recalcular todo el campus."""
     qs = Indicador.objects.filter(activo=True).select_related("programa", "factor", "responsable")
     if programas is not None:
         qs = qs.filter(programa__in=programas)
@@ -142,6 +175,9 @@ def riesgo_programa(resultados: list[ResultadoIndicador]) -> float:
 
 # --------------------------------------------------------------------------- reglas
 def _alerta(claves, tipo, severidad, programa, titulo, detalle, puntaje=0, **rel):
+    """Registra una alerta candidata bajo una CLAVE que identifica la condición (tipo + indicador + evidencia
+    + plan). Esa clave es la que evita duplicados: si la misma condición ya tenía una alerta activa, se actualiza
+    en vez de crear otra, y si la condición desaparece, la alerta se resuelve (ver recalcular)."""
     clave = f"{tipo}:{rel.get('indicador').id if rel.get('indicador') else ''}:" \
             f"{rel.get('evidencia').id if rel.get('evidencia') else ''}:{rel.get('plan').id if rel.get('plan') else ''}"
     claves[clave] = dict(
@@ -156,6 +192,14 @@ def _fmt(valor, ind: Indicador) -> str:
 
 
 def _reglas_indicador(res: ResultadoIndicador, claves: dict, hoy):
+    """Reglas de alerta por indicador. Son reglas verificables, no predicciones:
+    1. Valor por debajo de la meta.
+    2. Indicador desactualizado según su periodicidad (o sin registros).
+    3. Sin evidencia vigente.
+    4. Tendencia en deterioro aunque todavía cumpla la meta: la alerta realmente «temprana».
+    5. Evidencia solicitada cuya fecha límite ya pasó.
+    (La sexta regla, plan de mejoramiento retrasado, está en _reglas_planes.)
+    """
     ind, prog = res.indicador, res.indicador.programa
     reg = ind.ultimo_registro
     sev_riesgo = SEVERIDAD_POR_NIVEL[res.nivel]
@@ -208,6 +252,8 @@ def _reglas_indicador(res: ResultadoIndicador, claves: dict, hoy):
 
 
 def _reglas_planes(programas, claves: dict, hoy):
+    """Regla 6: plan de mejoramiento retrasado, cuando su avance real está por debajo del avance esperado
+    según el tiempo transcurrido entre su inicio y su fecha límite."""
     qs = PlanMejoramiento.objects.select_related("programa", "indicador", "responsable").exclude(
         estado__in=[PlanMejoramiento.Estado.CERRADO, PlanMejoramiento.Estado.CANCELADO]
     )
@@ -229,7 +275,12 @@ def _reglas_planes(programas, claves: dict, hoy):
 
 @transaction.atomic
 def recalcular(programas=None) -> dict:
-    """Recalcula puntajes y sincroniza alertas. Devuelve un resumen."""
+    """Recalcula puntajes y sincroniza alertas. Devuelve un resumen.
+
+    Pasos: (1) calcula el índice de cada indicador y lo guarda; (2) aplica las reglas y reúne las alertas
+    candidatas por clave; (3) crea las nuevas y actualiza las que ya existían; (4) resuelve automáticamente
+    las activas cuya condición ya no se presenta. Todo en una transacción: o se aplica completo o nada.
+    """
     hoy = timezone.localdate()
     if programas is not None and not isinstance(programas, (list, tuple, set)):
         programas = [programas]
@@ -254,6 +305,7 @@ def recalcular(programas=None) -> dict:
         .values_list("clave", flat=True)
     )
     creadas = actualizadas = resueltas = 0
+    # Sincronización: crear las alertas nuevas y actualizar las existentes (sin duplicar).
     for clave, datos in claves.items():
         if clave in descartadas:
             continue
@@ -271,6 +323,7 @@ def recalcular(programas=None) -> dict:
             Alerta.objects.create(clave=clave, **datos)
             creadas += 1
     ahora = timezone.now()
+    # Resolución automática: una alerta activa cuya condición ya no aparece se cierra sola.
     for clave, a in activas.items():
         if clave not in claves:
             a.estado = Alerta.Estado.RESUELTA

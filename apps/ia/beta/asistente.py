@@ -371,6 +371,12 @@ SUGERENCIAS = {
 
 # ----------------------------------------------------------------------------- punto de entrada
 def responder(user, texto: str, programa_id=None) -> dict:
+    """Responde una pregunta del asistente propio en cuatro pasos:
+    1. Programas visibles para el usuario (filtrar_por_programa): los permisos se aplican antes que nada.
+    2. Entidades: programa nombrado en la pregunta y horizonte de tiempo («esta semana», «15 días»).
+    3. Intención: la red neuronal clasifica la pregunta; bajo 50 % de confianza no adivina y propone preguntas.
+    4. Respuesta: la función de esa intención consulta la base de datos y arma el texto con cifras reales.
+    """
     visibles_qs = filtrar_por_programa(Programa.objects.filter(activo=True), user, "id").order_by("nombre")
     visibles = list(visibles_qs)
     ctx = Contexto(user=user, texto=texto, programas=visibles, horizonte=detectar_horizonte(texto))

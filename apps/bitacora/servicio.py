@@ -1,4 +1,8 @@
-"""Registro de acciones en la bitácora. Solo se escribe; nunca se edita ni se borra desde la API."""
+"""Registro de acciones en la bitácora. Solo se escribe; nunca se edita ni se borra desde la API.
+
+Es la trazabilidad del sistema (RF-15, RNF-03): quién hizo qué, cuándo, en qué programa y desde qué IP.
+Cada vista que cambia información llama a registrar(); la API de bitácora solo permite consultar y exportar.
+"""
 from .models import RegistroBitacora
 
 Modulo = RegistroBitacora.Modulo

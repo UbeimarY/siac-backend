@@ -1,4 +1,12 @@
-"""Permisos por rol (numeral 2.5.5: cada usuario consulta o modifica solo lo necesario)."""
+"""Permisos por rol (numeral 2.5.5: cada usuario consulta o modifica solo lo necesario).
+
+Los permisos se verifican AQUÍ, en el servidor, en cada petición a la API. La interfaz también oculta botones,
+pero eso es solo comodidad: aunque alguien llame directamente a la API, un director no puede ver ni modificar
+un programa que no tiene asignado. Lo comprueban las pruebas de integración por perfil (PRU-02).
+
+Perfiles: ADMIN y COORDINADOR (globales, ven los seis programas), DIRECTOR (gestiona sus programas),
+RESPONSABLE (registra valores y evidencias de sus indicadores) y CONSULTA (solo lectura).
+"""
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from .models import Usuario
@@ -40,6 +48,8 @@ class NoConsulta(BasePermission):
 
 
 def filtrar_por_programa(qs, user, campo="programa_id"):
+    """Filtra cualquier consulta a los programas que el usuario puede ver. Todas las vistas de la API pasan por
+    aquí, así que la información diferenciada por programa no depende de que la interfaz «se porte bien»."""
     ids = user.programas_visibles_ids()
     if ids is None:
         return qs
@@ -47,6 +57,7 @@ def filtrar_por_programa(qs, user, campo="programa_id"):
 
 
 def puede_editar_programa(user, programa_id) -> bool:
+    """Solo los perfiles globales y el director del programa pueden modificar su configuración e indicadores."""
     if user.es_global:
         return True
     if user.rol == R.DIRECTOR:

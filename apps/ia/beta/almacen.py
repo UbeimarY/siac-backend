@@ -1,4 +1,9 @@
-"""Guardado y carga de los modelos de la IA Beta en la base de datos, con caché en memoria."""
+"""Guardado y carga de los modelos de la IA Beta en la base de datos, con caché en memoria.
+
+Los pesos entrenados se guardan como bytes (formato .npz de NumPy) en la tabla ModeloBeta, con número de
+versión, métricas e historial. Se guardan en la base de datos y no en disco porque el disco del servidor
+gratuito de Render se borra en cada despliegue. Cada entrenamiento crea una versión nueva y desactiva la anterior.
+"""
 from __future__ import annotations
 
 import threading

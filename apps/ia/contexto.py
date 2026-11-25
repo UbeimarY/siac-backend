@@ -1,4 +1,9 @@
-"""Construcción del contexto (datos del SIAC) que se entrega a la IA, respetando los permisos del usuario."""
+"""Construcción del contexto (datos del SIAC) que se entrega a la IA, respetando los permisos del usuario.
+
+Aquí está la protección de datos frente a la IA: el texto que recibe el modelo se arma con las mismas
+consultas filtradas por programa que usa el tablero, así que la IA nunca ve información de programas que el
+usuario no tiene asignados (Ley 1581 de 2012, RNF-09).
+"""
 from django.utils import timezone
 
 from apps.alertas.models import Alerta

@@ -92,6 +92,8 @@ DATABASES = {
 
 AUTH_USER_MODEL = "usuarios.Usuario"
 
+# Contraseñas: Django las guarda con una función de derivación de claves (PBKDF2 con sal), nunca en texto plano.
+# Estas reglas exigen al menos 8 caracteres, que no sea una contraseña común, solo números ni parecida al correo.
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 8}},
@@ -152,6 +154,9 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {"user": "2000/hour", "ia": os.environ.get("IA_RATE", "40/hour"), "login": "20/min"},
 }
 
+# Autenticación con JWT: el usuario inicia sesión y recibe dos tokens. El de acceso dura 60 minutos y va en
+# cada petición; el de renovación (7 días) permite pedir uno nuevo sin volver a escribir la contraseña. Al
+# renovarlo, el anterior queda en lista negra; al cerrar sesión también, así que un token robado deja de servir.
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=int(os.environ.get("JWT_ACCESS_MINUTES", "60"))),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=int(os.environ.get("JWT_REFRESH_DAYS", "7"))),

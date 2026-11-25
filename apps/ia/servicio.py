@@ -1,8 +1,13 @@
 """
-Cliente del modelo de lenguaje (Anthropic) para el asistente de IA del SIAC.
+Cliente del modelo de lenguaje de la «IA estándar» del SIAC. El proveedor es configurable por variables de
+entorno (IA_PROVEEDOR); en el despliegue se usa Groq con un modelo de pesos abiertos.
 
 Principio de diseño: la IA APOYA, no decide. El motor de alertas sigue siendo un sistema de
 reglas (numeral 4.2.4); la IA redacta sugerencias y resúmenes que el usuario revisa y aprueba.
+Garantías de este módulo:
+* La IA solo recibe el contexto que arma contexto.py con los permisos del usuario.
+* Cada llamada queda registrada (InteraccionIA y bitácora) con la función, el modelo y el resultado.
+* Si el proveedor no está configurado o falla, se lanza un error controlado y el resto del sistema sigue igual.
 """
 from __future__ import annotations
 
@@ -160,7 +165,11 @@ def _llamar_compatible(c: dict, sistema: str, mensajes: list, max_tokens: int):
 
 def llamar(request, funcion: str, sistema: str, mensajes: list, programa=None, max_tokens=None,
            resumen_entrada: str = "") -> str:
-    """Llama al modelo configurado, registra la interacción y devuelve el texto de respuesta."""
+    """Llama al modelo configurado, registra la interacción y devuelve el texto de respuesta.
+
+    Las instrucciones base (BASE_SISTEMA) le piden usar solo los datos entregados y no inventar; aun así, todo
+    lo que devuelve es una propuesta que una persona revisa antes de guardar.
+    """
     if not disponible():
         raise IANoDisponible()
     c = config()

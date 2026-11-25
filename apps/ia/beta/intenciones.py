@@ -151,7 +151,12 @@ def _h(token: str) -> int:
 
 
 def vectorizar(texto: str) -> np.ndarray:
-    """Bolsa de palabras + bigramas + trigramas de caracteres, en un vector de tamaño fijo (hashing)."""
+    """Bolsa de palabras + bigramas + trigramas de caracteres, en un vector de tamaño fijo (hashing).
+
+    La red no entiende texto, solo números. Cada palabra, cada par de palabras seguidas y cada grupo de tres
+    letras se convierte, con una función hash, en una posición de un vector de 1024 números, que se incrementa.
+    Los trigramas de letras permiten reconocer palabras con errores o variaciones («alertas», «alerta», «alrtas»).
+    """
     t = normalizar(texto)
     v = np.zeros(DIM)
     palabras = t.split()
@@ -242,6 +247,8 @@ def entrenar(usuario=None, semilla: int = 11):
 
 
 def clasificar(texto: str) -> tuple[str, float, list[tuple[str, float]]] | None:
+    """Vectoriza la pregunta, la pasa por la red [1024, 64, 11] con salida softmax y devuelve la intención más
+    probable, su confianza (probabilidad) y las tres mejores opciones."""
     """Devuelve (intención, confianza, top-3) o None si no hay modelo entrenado."""
     cargado = almacen.cargar(TIPO)
     if cargado is None:

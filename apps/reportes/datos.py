@@ -114,7 +114,12 @@ def tablero(filtros: Filtros) -> dict:
     orden = {"ALTA": 0, "MEDIA": 1, "BAJA": 2}
     alertas_list.sort(key=lambda a: (orden[a.severidad], -a.fecha_generacion.timestamp()))
 
-    # Riesgo por programa y mapa de calor programa × factor
+    # Riesgo por programa y mapa de calor programa × factor.
+    # Cada celda agrega los índices de riesgo (0–100) de los indicadores de ese programa en ese factor con
+    # motor.agregar: 50 % el promedio de todos + 50 % el promedio de los tres más altos, para que un indicador
+    # crítico no se esconda en el promedio. El color sale del semáforo del programa (por defecto: bajo hasta 40,
+    # medio hasta 65, alto por encima). Ej.: cinco indicadores con 80, 10, 10, 10 y 10 → promedio 24 y
+    # promedio de los tres más altos 33,3 → celda 0,5 × 24 + 0,5 × 33,3 = 28,7.
     por_prog = defaultdict(list)
     for i in inds:
         por_prog[i.programa_id].append(i)

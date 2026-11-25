@@ -3,6 +3,13 @@
 La red aprende del histórico registrado en SIAC Monitor: para cada indicador toma una ventana de sus últimos
 valores (hasta cuatro) y aprende si el valor siguiente incumplió la meta. Al predecir, aplica la misma ventana
 sobre los últimos registros y estima la probabilidad de que el próximo valor no alcance la meta.
+
+Flujo: serie de valores → 15 características (caracteristicas) → normalización → red [15, 16, 8, 1] con
+salida sigmoide → probabilidad entre 0 y 1 → nivel ALTO (≥ 0,66), MEDIO (≥ 0,33) o BAJO.
+
+Honestidad metodológica: el modelo se compara siempre con una regla simple de «persistencia» (el próximo
+periodo repite el estado actual). Con los datos ficticios de demostración, el histórico es corto y la red rinde
+parecido a esa regla; las dos métricas se muestran lado a lado en la página IA Beta.
 """
 from __future__ import annotations
 
@@ -18,6 +25,7 @@ from .red import RedNeuronal
 TIPO = "RIESGO"
 VENTANA = 4
 PERIODICIDADES = ["MENSUAL", "TRIMESTRAL", "SEMESTRAL", "ANUAL"]
+# Las 15 características que la red «ve» de cada indicador, calculadas con sus últimos cuatro valores.
 CARACTERISTICAS = [
     "Cumplimiento actual",
     "Cumple la meta",
@@ -61,7 +69,11 @@ def _cumplimiento(ind: Indicador, v: float) -> float:
 
 
 def caracteristicas(ind: Indicador, valores: list[float]) -> np.ndarray:
-    """Vector de entrada a partir de los valores en orden cronológico (el último es el más reciente)."""
+    """Vector de entrada a partir de los valores en orden cronológico (el último es el más reciente).
+
+    Todo se expresa en la dirección de la meta (signo) y relativo a ella (÷ meta), para que indicadores con
+    escalas distintas (porcentajes, números, escalas de 1 a 5) sean comparables para la red.
+    """
     v = np.array(valores[-VENTANA:], dtype=float)
     meta = float(ind.meta) or 1.0
     signo = 1.0 if ind.tipo_meta == Indicador.TipoMeta.MAYOR_IGUAL else -1.0
@@ -106,7 +118,11 @@ def _historicos(indicadores=None) -> dict[int, tuple[Indicador, list[float]]]:
 
 
 def construir_dataset(datos=None):
-    """Muestras (ventana -> ¿el siguiente valor incumple?) y el indicador al que pertenece cada una."""
+    """Muestras (ventana -> ¿el siguiente valor incumple?) y el indicador al que pertenece cada una.
+
+    Ejemplo: un indicador con valores [70, 78, 82, 79] y meta 80 genera tres ejemplos de entrenamiento:
+    [70] → 78 incumple (1); [70, 78] → 82 cumple (0); [70, 78, 82] → 79 incumple (1).
+    """
     datos = datos if datos is not None else _historicos()
     X, y, grupos = [], [], []
     for iid, (ind, serie) in datos.items():
@@ -157,6 +173,10 @@ def _nueva_red(n_entradas, semilla):
 def entrenar(usuario=None, semilla: int = 7, datos=None, pliegues: int = 5):
     """Evalúa con validación cruzada por indicador y entrena la versión final con todos los datos.
 
+    Por qué validación cruzada AGRUPADA: si los periodos de un mismo indicador quedaran a la vez en
+    entrenamiento y en validación, la red «vería» la serie que luego se le pregunta y las métricas saldrían
+    infladas. Por eso cada indicador completo queda en un solo pliegue.
+
     Devuelve (ModeloBeta, None) o (None, mensaje de error)."""
     X, y, grupos = construir_dataset(datos)
     if len(X) < 20 or len(set(y.tolist())) < 2:
@@ -174,9 +194,10 @@ def entrenar(usuario=None, semilla: int = 7, datos=None, pliegues: int = 5):
     # Validación cruzada agrupada: cada indicador se evalúa con una red que nunca vio su serie.
     for k in range(pliegues):
         tr, va = pliegue != k, pliegue == k
+        # Normalización con la media y desviación SOLO del entrenamiento (la validación no debe filtrarse).
         media, desv = X[tr].mean(axis=0), X[tr].std(axis=0)
         desv[desv < 1e-6] = 1.0
-        Xa, ya = _aumentar(X[tr], y[tr], rng)
+        Xa, ya = _aumentar(X[tr], y[tr], rng)  # aumento de datos: copias con un poco de ruido
         red = _nueva_red(X.shape[1], semilla + k)
         h = red.entrenar((Xa - media) / desv, ya, (X[va] - media) / desv, y[va], epocas=300, lote=HIPER["lote"],
                          tasa=HIPER["tasa"], l2=HIPER["l2"], pesos_clase=_pesos_clase(ya), paciencia=40, min_epocas=15)
